@@ -1,0 +1,236 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
+import {
+  ArrowLeft,
+  ChevronDown,
+  CheckSquare,
+  CircleDot,
+  Eye,
+  Link as LinkIcon,
+  Loader2,
+  Plus,
+  Type,
+  AlignLeft,
+} from "lucide-react";
+
+import { Header } from "@/components/layout/Header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import { useSurvey } from "@/contexts/SurveyContext";
+import { QuestionEditor } from "@/components/survey/QuestionEditor";
+import { Question, QuestionType } from "@/types/survey";
+
+const questionTypes: { value: QuestionType; label: string; icon: JSX.Element }[] = [
+  { value: "short_answer", label: "Short Answer", icon: <Type className="h-4 w-4" /> },
+  { value: "paragraph", label: "Paragraph", icon: <AlignLeft className="h-4 w-4" /> },
+  { value: "multiple_choice", label: "Multiple Choice", icon: <CircleDot className="h-4 w-4" /> },
+  // ✅ DB expects "checkboxes"
+  { value: "checkbox", label: "Checkboxes", icon: <CheckSquare className="h-4 w-4" /> },
+  { value: "dropdown", label: "Dropdown", icon: <ChevronDown className="h-4 w-4" /> },
+];
+
+export default function SurveyEditor() {
+  // ✅ Hooks ALWAYS run (no early return before hooks)
+  const params = useParams<{ surveyId?: string; id?: string; survey_id?: string }>();
+  const navigate = useNavigate();
+
+  const { getSurvey, updateSurvey, addQuestion, updateQuestion, deleteQuestion, isLoading } = useSurvey();
+
+  // accept multiple param names safely
+  const surveyId = params.surveyId || params.id || params.survey_id || "";
+
+  const survey = surveyId ? getSurvey(surveyId) : null;
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+
+  // ✅ Handle missing id AFTER hooks
+  useEffect(() => {
+    if (!surveyId) {
+      toast.error("Missing survey id");
+      navigate("/admin/surveys");
+    }
+  }, [surveyId, navigate]);
+
+  // Fill local fields when survey loads
+  useEffect(() => {
+    if (survey) {
+      setTitle(survey.title ?? "");
+      setDescription(survey.description ?? "");
+    }
+  }, [survey]);
+
+  // If finished loading and not found -> back
+  useEffect(() => {
+    if (!isLoading && surveyId && !survey) {
+      toast.error("Survey not found");
+      navigate("/admin/surveys");
+    }
+  }, [isLoading, surveyId, survey, navigate]);
+
+  const handleTitleChange = async (newTitle: string) => {
+    setTitle(newTitle);
+    if (!surveyId) return;
+    await updateSurvey(surveyId, { title: newTitle });
+  };
+
+  const handleDescriptionChange = async (newDescription: string) => {
+    setDescription(newDescription);
+    if (!surveyId) return;
+    await updateSurvey(surveyId, { description: newDescription });
+  };
+
+  const handleAddQuestion = async (type: QuestionType) => {
+    if (!surveyId) return;
+
+    const newQuestion: Question = {
+      id: crypto.randomUUID(),
+      type,
+      title: "Untitled Question",
+      required: false,
+      options: ["multiple_choice", "checkboxes", "dropdown"].includes(type)
+        ? [
+            { id: crypto.randomUUID(), text: "Option 1" },
+            { id: crypto.randomUUID(), text: "Option 2" },
+          ]
+        : undefined,
+    };
+
+    await addQuestion(surveyId, newQuestion);
+  };
+
+  const handleCopyLink = () => {
+    if (!surveyId) return;
+    const url = window.location.origin + "/survey/" + surveyId;
+    navigator.clipboard.writeText(url);
+    toast.success("Survey link copied!");
+  };
+
+  const handlePreview = () => {
+    if (!surveyId) return;
+    window.open("/survey/" + surveyId, "_blank");
+  };
+
+  // UI states
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </main>
+      </div>
+    );
+  }
+
+  if (!survey) {
+    // will redirect via useEffect if not found/missing
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container py-16">
+          <div className="text-sm text-muted-foreground">Loading survey...</div>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      {/* Toolbar */}
+      <div className="sticky top-16 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
+        <div className="container flex h-14 items-center justify-between gap-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/admin/surveys")}>
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            Surveys
+          </Button>
+
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleCopyLink}>
+              <LinkIcon className="mr-2 h-4 w-4" />
+              Copy Link
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={handlePreview}>
+              <Eye className="mr-2 h-4 w-4" />
+              Preview
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Question
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end" className="w-56">
+                {questionTypes.map((t) => (
+                  <DropdownMenuItem
+                    key={t.value}
+                    onClick={() => handleAddQuestion(t.value)}
+                    className="flex items-center gap-2"
+                  >
+                    {t.icon}
+                    <span>{t.label}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </div>
+
+      {/* Editor */}
+      <main className="container py-8 space-y-8">
+        <div className="card-elevated p-6 space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Survey title</label>
+            <Input value={title} onChange={(e) => handleTitleChange(e.target.value)} />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Description (optional)</label>
+            <Textarea
+              value={description}
+              onChange={(e) => handleDescriptionChange(e.target.value)}
+              rows={3}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Questions</h2>
+
+          {survey.questions?.length ? (
+            <div className="space-y-4">
+              {survey.questions.map((q: Question) => (
+                <QuestionEditor
+                  key={q.id}
+                  question={q}
+                  onUpdate={(updates) => updateQuestion(surveyId, q.id, updates)}
+                  onDelete={() => deleteQuestion(surveyId, q.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="card-elevated p-6 text-sm text-muted-foreground">
+              No questions yet. Click “Add Question”.
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
