@@ -11,7 +11,6 @@ import Login from "./pages/public/Login";
 import Signup from "./pages/public/Signup";
 import NotFound from "./pages/public/NotFound";
 
-
 // Admin pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminSemesterTeachers from "./pages/admin/AdminSemesterTeachers";
@@ -19,7 +18,7 @@ import AdminStudentsSemester from "./pages/admin/AdminStudentsSemester";
 import AdminCreateSurvey from "./pages/admin/AdminCreateSurvey";
 import AdminSurveyResponses from "./pages/admin/AdminSurveyResponses";
 import AdminSurveys from "@/pages/admin/AdminSurveys";
-
+import AdminChart from "@/pages/admin/AdminChart";
 // Existing shared pages you already have
 import SurveyEditor from "./pages/admin/SurveyEditor";
 import SurveyResponses from "./pages/admin/AdminSurveyResponses"; // (if you still use it)
@@ -28,7 +27,7 @@ import SurveyResponses from "./pages/admin/AdminSurveyResponses"; // (if you sti
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentSurveyTaker from "./pages/student/StudentSurveyTaker";
 
-const queryClient = new QueryClient();  
+const queryClient = new QueryClient();
 
 const LoadingScreen = () => (
   <div className="flex min-h-screen items-center justify-center bg-background">
@@ -72,12 +71,15 @@ const AppRoutes = () => (
     {/* AdminSurvey */}
     <Route path="/admin/surveys" element={<AdminSurveys />} />
     <Route path="/admin/surveys/:surveyId/edit" element={<SurveyEditor />} />
-<Route path="/admin/surveys/:surveyId/responses" element={<AdminSurveyResponses />} />
-<Route path="/admin/surveys" element={<AdminSurveys />} />
+    <Route
+      path="/admin/surveys/:surveyId/responses"
+      element={<AdminSurveyResponses />}
+    />
+    <Route path="/admin/surveys" element={<AdminSurveys />} />
+    <Route path="/admin/charts" element={<AdminChart />} />
 
-   <Route path="/signup" element={<Signup />} />
+    <Route path="/signup" element={<Signup />} />
 
-     
     {/* Public */}
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<Login />} />
@@ -194,7 +196,6 @@ const AppRoutes = () => (
 
     <Route path="*" element={<NotFound />} />
   </Routes>
-  
 );
 
 const App = () => (
