@@ -17,11 +17,9 @@ import AdminSemesterTeachers from "./pages/admin/AdminSemesterTeachers";
 import AdminStudentsSemester from "./pages/admin/AdminStudentsSemester";
 import AdminCreateSurvey from "./pages/admin/AdminCreateSurvey";
 import AdminSurveyResponses from "./pages/admin/AdminSurveyResponses";
-import AdminSurveys from "@/pages/admin/AdminSurveys";
-import AdminChart from "@/pages/admin/AdminChart";
-// Existing shared pages you already have
+import AdminSurveys from "./pages/admin/AdminSurveys";
+import AdminChart from "./pages/admin/AdminChart";
 import SurveyEditor from "./pages/admin/SurveyEditor";
-import SurveyResponses from "./pages/admin/AdminSurveyResponses"; // (if you still use it)
 
 // Student pages
 import StudentDashboard from "./pages/student/StudentDashboard";
@@ -58,7 +56,6 @@ const StudentRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-// Redirect logged-in user to correct home
 const RoleRedirect = () => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
@@ -68,24 +65,12 @@ const RoleRedirect = () => {
 
 const AppRoutes = () => (
   <Routes>
-    {/* AdminSurvey */}
-    <Route path="/admin/surveys" element={<AdminSurveys />} />
-    <Route path="/admin/surveys/:surveyId/edit" element={<SurveyEditor />} />
-    <Route
-      path="/admin/surveys/:surveyId/responses"
-      element={<AdminSurveyResponses />}
-    />
-    <Route path="/admin/surveys" element={<AdminSurveys />} />
-    <Route path="/admin/charts" element={<AdminChart />} />
-
-    <Route path="/signup" element={<Signup />} />
-
     {/* Public */}
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<Login />} />
     <Route path="/signup" element={<Signup />} />
 
-    {/* If someone visits /dashboard, send to correct role home */}
+    {/* Role redirect */}
     <Route
       path="/dashboard"
       element={
@@ -96,95 +81,21 @@ const AppRoutes = () => (
     />
 
     {/* Admin */}
-    <Route
-      path="/admin"
-      element={
-        <AdminRoute>
-          <AdminDashboard />
-        </AdminRoute>
-      }
-    />
-    <Route
-      path="/admin/semester-teachers"
-      element={
-        <AdminRoute>
-          <AdminSemesterTeachers />
-        </AdminRoute>
-      }
-    />
-    <Route
-      path="/admin/students-semester"
-      element={
-        <AdminRoute>
-          <AdminStudentsSemester />
-        </AdminRoute>
-      }
-    />
-    <Route
-      path="/admin/create-survey"
-      element={
-        <AdminRoute>
-          <AdminCreateSurvey />
-        </AdminRoute>
-      }
-    />
+    <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+    <Route path="/admin/semester-teachers" element={<AdminRoute><AdminSemesterTeachers /></AdminRoute>} />
+    <Route path="/admin/students-semester" element={<AdminRoute><AdminStudentsSemester /></AdminRoute>} />
+    <Route path="/admin/create-survey" element={<AdminRoute><AdminCreateSurvey /></AdminRoute>} />
 
-    {/* Admin survey edit + responses */}
-    <Route
-      path="/admin/survey/:id/edit"
-      element={
-        <AdminRoute>
-          <SurveyEditor />
-        </AdminRoute>
-      }
-    />
-    <Route
-      path="/admin/survey/:id/responses"
-      element={
-        <AdminRoute>
-          {/* Use your new AdminSurveyResponses page if you want */}
-          <AdminSurveyResponses />
-        </AdminRoute>
-      }
-    />
-
-    {/* If you still want to keep your old /survey/:id/edit routes for compatibility */}
-    <Route
-      path="/survey/:id/edit"
-      element={
-        <AdminRoute>
-          <SurveyEditor />
-        </AdminRoute>
-      }
-    />
-    <Route
-      path="/survey/:id/responses"
-      element={
-        <AdminRoute>
-          <SurveyResponses />
-        </AdminRoute>
-      }
-    />
+    <Route path="/admin/surveys" element={<AdminRoute><AdminSurveys /></AdminRoute>} />
+    <Route path="/admin/surveys/:surveyId/edit" element={<AdminRoute><SurveyEditor /></AdminRoute>} />
+    <Route path="/admin/surveys/:surveyId/responses" element={<AdminRoute><AdminSurveyResponses /></AdminRoute>} />
+    <Route path="/admin/surveys/:surveyId/analytics" element={<AdminRoute><AdminChart /></AdminRoute>} />
 
     {/* Student */}
-    <Route
-      path="/student"
-      element={
-        <StudentRoute>
-          <StudentDashboard />
-        </StudentRoute>
-      }
-    />
-    <Route
-      path="/student/survey/:id"
-      element={
-        <StudentRoute>
-          <StudentSurveyTaker />
-        </StudentRoute>
-      }
-    />
+    <Route path="/student" element={<StudentRoute><StudentDashboard /></StudentRoute>} />
+    <Route path="/student/survey/:id" element={<StudentRoute><StudentSurveyTaker /></StudentRoute>} />
 
-    {/* If student hits old /survey/:id, redirect to /student/survey/:id */}
+    {/* Optional: if someone hits old /survey/:id, send to student dashboard */}
     <Route
       path="/survey/:id"
       element={

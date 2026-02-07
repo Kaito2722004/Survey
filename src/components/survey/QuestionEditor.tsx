@@ -1,27 +1,26 @@
-import { useState } from 'react';
-import { Question, QuestionType, QuestionOption } from '@/types/survey';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+import { Question, QuestionType, QuestionOption } from "@/types/survey";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { 
-  GripVertical, 
-  Trash2, 
-  Plus, 
+} from "@/components/ui/select";
+import {
+  GripVertical,
+  Trash2,
+  Plus,
   X,
   Type,
   AlignLeft,
   CircleDot,
   CheckSquare,
   ChevronDown,
-} from 'lucide-react';
+} from "lucide-react";
 
 interface QuestionEditorProps {
   question: Question;
@@ -31,15 +30,28 @@ interface QuestionEditorProps {
 }
 
 const QUESTION_TYPES: { value: QuestionType; label: string; icon: React.ReactNode }[] = [
-  { value: 'short_answer', label: 'Short Answer', icon: <Type className="h-4 w-4" /> },
-  { value: 'paragraph', label: 'Paragraph', icon: <AlignLeft className="h-4 w-4" /> },
-  { value: 'multiple_choice', label: 'Multiple Choice', icon: <CircleDot className="h-4 w-4" /> },
-  { value: 'checkbox', label: 'Checkboxes', icon: <CheckSquare className="h-4 w-4" /> },
-  { value: 'dropdown', label: 'Dropdown', icon: <ChevronDown className="h-4 w-4" /> },
+  { value: "short_answer", label: "Short Answer", icon: <Type className="h-4 w-4" /> },
+  { value: "paragraph", label: "Paragraph", icon: <AlignLeft className="h-4 w-4" /> },
+  { value: "multiple_choice", label: "Multiple Choice", icon: <CircleDot className="h-4 w-4" /> },
+  { value: "checkboxes", label: "Checkboxes", icon: <CheckSquare className="h-4 w-4" /> },
+  { value: "dropdown", label: "Dropdown", icon: <ChevronDown className="h-4 w-4" /> },
 ];
 
+const HAS_OPTIONS = new Set<QuestionType>(["multiple_choice", "checkboxes", "dropdown"]);
+
 export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }: QuestionEditorProps) => {
-  const hasOptions = ['multiple_choice', 'checkbox', 'dropdown'].includes(question.type);
+  const hasOptions = HAS_OPTIONS.has(question.type);
+
+  const ensureOptionsExist = () => {
+    if (!HAS_OPTIONS.has(question.type)) return;
+    if (question.options && question.options.length > 0) return;
+
+    const defaults: QuestionOption[] = [
+      { id: crypto.randomUUID(), text: "Option 1" },
+      { id: crypto.randomUUID(), text: "Option 2" },
+    ];
+    onUpdate({ options: defaults });
+  };
 
   const addOption = () => {
     const newOption: QuestionOption = {
@@ -51,33 +63,58 @@ export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }
 
   const updateOption = (optionId: string, text: string) => {
     onUpdate({
-      options: question.options?.map(opt =>
-        opt.id === optionId ? { ...opt, text } : opt
-      ),
+      options: question.options?.map((opt) => (opt.id === optionId ? { ...opt, text } : opt)),
     });
   };
 
   const deleteOption = (optionId: string) => {
     onUpdate({
-      options: question.options?.filter(opt => opt.id !== optionId),
+      options: question.options?.filter((opt) => opt.id !== optionId),
     });
   };
+
+  const handleTypeChange = (value: QuestionType) => {
+    // when switching into an option type, auto-create options
+    onUpdate({ type: value });
+    // microtask so parent state updates first
+    setTimeout(() => {
+      // if the new type needs options, ensure they exist
+      if (HAS_OPTIONS.has(value) && (!question.options || question.options.length === 0)) {
+        onUpdate({
+          options: [
+            { id: crypto.randomUUID(), text: "Option 1" },
+            { id: crypto.randomUUID(), text: "Option 2" },
+          ],
+        });
+      }
+      if (!HAS_OPTIONS.has(value)) {
+        onUpdate({ options: undefined });
+      }
+    }, 0);
+  };
+
+  // also ensure options exist if old data has checkboxes but missing options
+  if (hasOptions && (!question.options || question.options.length === 0)) {
+    // safe: triggers once then renders normally
+    setTimeout(ensureOptionsExist, 0);
+  }
 
   return (
     <div className="card-elevated animate-scale-in group relative overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border bg-secondary/30 px-4 py-2">
-        <div 
-          {...dragHandleProps} 
+        <div
+          {...dragHandleProps}
           className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
         >
           <GripVertical className="h-5 w-5" />
         </div>
-        <Select value={question.type} onValueChange={(value: QuestionType) => onUpdate({ type: value })}>
+
+        <Select value={question.type} onValueChange={handleTypeChange}>
           <SelectTrigger className="w-[180px] border-0 bg-transparent shadow-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {QUESTION_TYPES.map(type => (
+            {QUESTION_TYPES.map((type) => (
               <SelectItem key={type.value} value={type.value}>
                 <div className="flex items-center gap-2">
                   {type.icon}
@@ -87,7 +124,9 @@ export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }
             ))}
           </SelectContent>
         </Select>
+
         <div className="flex-1" />
+
         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -103,24 +142,26 @@ export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }
           />
         </div>
 
-        {hasOptions && (
+        {hasOptions ? (
           <div className="space-y-2 pl-4">
             {question.options?.map((option, index) => (
               <div key={option.id} className="flex items-center gap-2">
-                {question.type === 'multiple_choice' && (
+                {question.type === "multiple_choice" && (
                   <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/40" />
                 )}
-                {question.type === 'checkbox' && (
+                {question.type === "checkboxes" && (
                   <div className="h-4 w-4 rounded border-2 border-muted-foreground/40" />
                 )}
-                {question.type === 'dropdown' && (
+                {question.type === "dropdown" && (
                   <span className="text-sm text-muted-foreground">{index + 1}.</span>
                 )}
+
                 <Input
                   value={option.text}
                   onChange={(e) => updateOption(option.id, e.target.value)}
                   className="flex-1 border-0 border-b border-transparent bg-transparent px-0 shadow-none focus:border-border focus-visible:ring-0"
                 />
+
                 {(question.options?.length || 0) > 1 && (
                   <Button
                     variant="ghost"
@@ -133,17 +174,16 @@ export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }
                 )}
               </div>
             ))}
+
             <Button variant="ghost" size="sm" className="mt-2" onClick={addOption}>
               <Plus className="mr-1 h-4 w-4" />
               Add Option
             </Button>
           </div>
-        )}
-
-        {!hasOptions && (
+        ) : (
           <div className="rounded-lg border border-dashed border-border bg-secondary/30 p-4">
             <p className="text-sm text-muted-foreground">
-              {question.type === 'short_answer' ? 'Short answer text' : 'Long answer text'}
+              {question.type === "short_answer" ? "Short answer text" : "Long answer text"}
             </p>
           </div>
         )}

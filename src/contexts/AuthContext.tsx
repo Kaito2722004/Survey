@@ -16,7 +16,6 @@ type AuthContextType = {
   user: AppUser | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  // ✅ semesterId added (4th argument)
   signup: (email: string, password: string, name: string, semesterId: string) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -35,6 +34,33 @@ function getErrorMessage(err: unknown): string {
     if (typeof maybeMsg === "string") return maybeMsg;
   }
   return String(err ?? "");
+}
+
+function isAbortError(err: unknown) {
+  const msg = getErrorMessage(err).toLowerCase();
+  return msg.includes("abort");
+}
+
+function isRefreshTokenProblem(err: unknown) {
+  const msg = getErrorMessage(err).toLowerCase();
+  return (
+    msg.includes("refresh token") ||
+    msg.includes("invalid refresh token") ||
+    msg.includes("refresh_token_not_found") ||
+    msg.includes("not found")
+  );
+}
+
+function clearSupabaseAuthStorage() {
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (k.startsWith("sb-") || k.toLowerCase().includes("supabase")) {
+      keysToRemove.push(k);
+    }
+  }
+  keysToRemove.forEach((k) => localStorage.removeItem(k));
 }
 
 async function buildAppUser(sessionUser: SessionUser) {
@@ -58,7 +84,7 @@ async function buildAppUser(sessionUser: SessionUser) {
   // Student semester (only one)
   let studentLink = await semesterStudentsService.getByStudent(sessionUser.id);
 
-  // ✅ If student picked semester during signup, auto-link on first login
+  // If student picked semester during signup, auto-link on first login
   const metaSemesterId =
     sessionUser.user_metadata && typeof sessionUser.user_metadata["semester_id"] === "string"
       ? (sessionUser.user_metadata["semester_id"] as string)
@@ -83,27 +109,15 @@ async function buildAppUser(sessionUser: SessionUser) {
   return appUser;
 }
 
-function clearSupabaseAuthStorage() {
-  // Only remove supabase auth keys, don't nuke all localStorage
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k) continue;
-    if (k.startsWith("sb-") || k.toLowerCase().includes("supabase")) {
-      keysToRemove.push(k);
-    }
-  }
-  keysToRemove.forEach((k) => localStorage.removeItem(k));
-}
-
-function isRefreshTokenProblem(err: unknown) {
-  const msg = getErrorMessage(err).toLowerCase();
-  return (
-    msg.includes("refresh token") ||
-    msg.includes("invalid refresh token") ||
-    msg.includes("refresh_token_not_found") ||
-    msg.includes("not found") // supabase sometimes says "Refresh Token Not Found"
-  );
+function toQuickUser(session: { user: { id: string; email?: string | null } }): AppUser {
+  const email = session.user.email ?? "";
+  return {
+    id: session.user.id,
+    email,
+    name: email ? email.split("@")[0] : "User",
+    isAdmin: false,
+    semesterId: null,
+  };
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -111,37 +125,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // 1) Listen auth changes
+    let alive = true;
+
+    const loadFullUserInBackground = (session: any) => {
+      buildAppUser({
+        id: session.user.id,
+        email: session.user.email,
+        user_metadata: session.user.user_metadata as Record<string, unknown>,
+      })
+        .then((u) => {
+          if (!alive) return;
+          setUser(u);
+        })
+        .catch((e) => {
+          if (isAbortError(e)) return;
+          console.error("buildAppUser error:", e);
+        });
+    };
+
+    // 1) Auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
+        if (!alive) return;
+
         if (session?.user) {
-          const u = await buildAppUser({
-            id: session.user.id,
-            email: session.user.email,
-            user_metadata: session.user.user_metadata as Record<string, unknown>,
-          });
-          setUser(u);
+          // ✅ set quick user immediately
+          setUser(toQuickUser(session as any));
+
+          // ✅ load full user in background
+          loadFullUserInBackground(session);
         } else {
           setUser(null);
         }
       } catch (e: unknown) {
+        if (isAbortError(e)) return;
+
         console.error("Auth state change error:", e);
 
-        // If refresh token is broken, clear storage and fully reset auth
         if (isRefreshTokenProblem(e)) {
           try {
             clearSupabaseAuthStorage();
             await supabase.auth.signOut();
-          } catch {
-            // intentionally ignore: best-effort cleanup
-          }
+          } catch {}
         }
 
         setUser(null);
       } finally {
-        setIsLoading(false);
+        if (alive) setIsLoading(false);
       }
     });
 
@@ -155,43 +187,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             clearSupabaseAuthStorage();
             await supabase.auth.signOut();
           }
-          setUser(null);
+          if (alive) setUser(null);
           return;
         }
 
         const session = data?.session;
         if (session?.user) {
-          const u = await buildAppUser({
-            id: session.user.id,
-            email: session.user.email,
-            user_metadata: session.user.user_metadata as Record<string, unknown>,
-          });
-          setUser(u);
+          // ✅ set quick user immediately
+          if (alive) setUser(toQuickUser(session as any));
+
+          // ✅ load full user in background
+          loadFullUserInBackground(session);
         } else {
-          setUser(null);
+          if (alive) setUser(null);
         }
       } catch (e: unknown) {
+        if (isAbortError(e)) return;
+
         console.error("Initial session load error:", e);
 
         if (isRefreshTokenProblem(e)) {
           try {
             clearSupabaseAuthStorage();
             await supabase.auth.signOut();
-          } catch {
-            // intentionally ignore: best-effort cleanup
-          }
+          } catch {}
         }
 
-        setUser(null);
+        if (alive) setUser(null);
       } finally {
-        setIsLoading(false);
+        if (alive) setIsLoading(false);
       }
     })();
 
-    return () => subscription.unsubscribe();
+    return () => {
+      alive = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
+    // ✅ Clear any broken session FIRST (prevents refresh-token loops)
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        await supabase.auth.signOut();
+        clearSupabaseAuthStorage();
+      }
+    } catch {
+      clearSupabaseAuthStorage();
+    }
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
@@ -211,7 +256,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ✅ Accept semesterId and store in user_metadata
   const signup = async (email: string, password: string, name: string, semesterId: string) => {
     const { error } = await supabase.auth.signUp({
       email,
@@ -247,7 +291,8 @@ export const useAuth = () => {
   if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
 };
+
 export const useUser = () => {
   const { user } = useAuth();
   return user;
-}
+};
