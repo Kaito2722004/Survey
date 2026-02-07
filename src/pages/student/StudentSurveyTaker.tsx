@@ -10,6 +10,43 @@ import { FileText, CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import { Survey } from "@/types/survey";
 import { Header } from "@/components/layout/Header";
 
+type SurveyAccessRow = {
+  is_published: boolean;
+  semester_id: string | null;
+  teacher_id: string | null;
+  survey_semesters?: { semester_id: string }[] | null;
+};
+
+function canStudentAccessSurvey(
+  survey: SurveyAccessRow,
+  studentSemesterId: string | null,
+) {
+  // must be published
+  if (!survey.is_published) return false;
+
+  const isTeacherSurvey = !!survey.teacher_id;
+
+  // Teacher survey -> only students in that semester
+  if (isTeacherSurvey) {
+    if (!studentSemesterId) return false;
+    return survey.semester_id === studentSemesterId;
+  }
+
+  // General survey:
+  const targeted = (survey.survey_semesters ?? [])
+    .map((x) => x.semester_id)
+    .filter(Boolean);
+
+  // Targeted general -> student must be in one of those semesters
+  if (targeted.length > 0) {
+    if (!studentSemesterId) return false;
+    return targeted.includes(studentSemesterId);
+  }
+
+  // School-wide general -> everyone can access (even if student has no semester)
+  return true;
+}
+
 export default function StudentSurveyTaker() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -32,7 +69,7 @@ export default function StudentSurveyTaker() {
       setIsLoadingSurvey(true);
       setIsAllowed(null);
 
-      // 1) student semester
+      // 1) student semester (optional now)
       const { data: semLink, error: semErr } = await supabase
         .from("semester_students")
         .select("semester_id")
@@ -47,20 +84,18 @@ export default function StudentSurveyTaker() {
         return;
       }
 
-      if (!semLink?.semester_id) {
-        setIsAllowed(false);
-        setIsLoadingSurvey(false);
-        return;
-      }
+      const studentSemesterId: string | null = semLink?.semester_id ?? null;
 
-      // 2) survey semester
+      // 2) survey access row (include teacher_id + survey_semesters)
       const { data: surveyRow, error: sErr } = await supabase
         .from("surveys")
-        .select("semester_id,is_published")
+        .select(
+          "is_published,semester_id,teacher_id,survey_semesters(semester_id)",
+        )
         .eq("id", id)
         .maybeSingle();
 
-      if (sErr) {
+      if (sErr || !surveyRow) {
         console.error(sErr);
         toast.error("Failed to load survey.");
         setIsAllowed(false);
@@ -68,9 +103,10 @@ export default function StudentSurveyTaker() {
         return;
       }
 
-      const allowed =
-        !!surveyRow?.is_published && surveyRow?.semester_id === semLink.semester_id;
-
+      const allowed = canStudentAccessSurvey(
+        surveyRow as SurveyAccessRow,
+        studentSemesterId,
+      );
       setIsAllowed(allowed);
 
       if (!allowed) {
@@ -79,7 +115,7 @@ export default function StudentSurveyTaker() {
         return;
       }
 
-      // 3) load survey + questions
+      // 3) load full survey + questions
       const surveyData = await getSurveyPublic(id);
       setSurvey(surveyData);
 
@@ -87,8 +123,10 @@ export default function StudentSurveyTaker() {
       if (surveyData) {
         const initial: Record<string, string | string[]> = {};
         surveyData.questions.forEach((q) => {
-          // support both "checkbox" and "checkboxes"
-          if (q.type === ("checkboxes" as any) || q.type === ("checkbox" as any)) {
+          if (
+            q.type === ("checkboxes" as any) ||
+            q.type === ("checkbox" as any)
+          ) {
             initial[q.id] = [];
           } else {
             initial[q.id] = "";
@@ -125,7 +163,8 @@ export default function StudentSurveyTaker() {
       if (Array.isArray(ans)) {
         if (ans.length === 0) newErrors[q.id] = "This question is required";
       } else {
-        if (!ans || ans.trim() === "") newErrors[q.id] = "This question is required";
+        if (!ans || ans.trim() === "")
+          newErrors[q.id] = "This question is required";
       }
     });
 
@@ -172,9 +211,11 @@ export default function StudentSurveyTaker() {
                 <ShieldAlert className="h-8 w-8 text-destructive" />
               </div>
             </div>
-            <h1 className="text-xl font-semibold text-foreground">Not allowed</h1>
+            <h1 className="text-xl font-semibold text-foreground">
+              Not allowed
+            </h1>
             <p className="mt-2 text-muted-foreground">
-              This survey is not for your semester (or it is not published).
+              This survey is not for you (or it is not published).
             </p>
           </div>
         </div>
@@ -193,7 +234,9 @@ export default function StudentSurveyTaker() {
                 <FileText className="h-8 w-8 text-muted-foreground" />
               </div>
             </div>
-            <h1 className="mb-2 text-xl font-semibold text-foreground">Survey Not Found</h1>
+            <h1 className="mb-2 text-xl font-semibold text-foreground">
+              Survey Not Found
+            </h1>
             <p className="text-muted-foreground">
               This survey doesn't exist or has been deleted.
             </p>
@@ -215,8 +258,12 @@ export default function StudentSurveyTaker() {
                   <CheckCircle2 className="h-8 w-8 text-success" />
                 </div>
               </div>
-              <h1 className="mb-2 text-2xl font-semibold text-foreground">Thank You!</h1>
-              <p className="text-muted-foreground">Your response has been recorded successfully.</p>
+              <h1 className="mb-2 text-2xl font-semibold text-foreground">
+                Thank You!
+              </h1>
+              <p className="text-muted-foreground">
+                Your response has been recorded successfully.
+              </p>
             </div>
           </div>
         </div>
@@ -236,10 +283,16 @@ export default function StudentSurveyTaker() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <FileText className="h-4 w-4 text-primary-foreground" />
               </div>
-              <span className="text-sm font-medium text-muted-foreground">FormFlow</span>
+              <span className="text-sm font-medium text-muted-foreground">
+                FormFlow
+              </span>
             </div>
-            <h1 className="text-2xl font-semibold text-foreground">{survey.title}</h1>
-            {survey.description && <p className="mt-2 text-muted-foreground">{survey.description}</p>}
+            <h1 className="text-2xl font-semibold text-foreground">
+              {survey.title}
+            </h1>
+            {survey.description && (
+              <p className="mt-2 text-muted-foreground">{survey.description}</p>
+            )}
             <p className="mt-4 text-sm text-muted-foreground">
               <span className="text-destructive">*</span> Required
             </p>
@@ -249,10 +302,16 @@ export default function StudentSurveyTaker() {
         {/* Questions */}
         <div className="space-y-4">
           {survey.questions.map((question, index) => (
-            <div key={question.id} style={{ animationDelay: `${index * 100}ms` }}>
+            <div
+              key={question.id}
+              style={{ animationDelay: `${index * 100}ms` }}
+            >
               <QuestionRenderer
                 question={question}
-                value={answers[question.id] || (question.type === ("checkboxes" as any) ? [] : "")}
+                value={
+                  answers[question.id] ||
+                  (question.type === ("checkboxes" as any) ? [] : "")
+                }
                 onChange={(value) => handleAnswerChange(question.id, value)}
                 error={errors[question.id]}
               />
@@ -276,7 +335,9 @@ export default function StudentSurveyTaker() {
           </div>
         ) : (
           <div className="card-elevated p-8 text-center mt-6">
-            <p className="text-muted-foreground">This survey has no questions yet.</p>
+            <p className="text-muted-foreground">
+              This survey has no questions yet.
+            </p>
           </div>
         )}
       </div>
