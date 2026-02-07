@@ -1,16 +1,16 @@
-import { Question } from '@/types/survey';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
+import { Question } from "@/types/survey";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 
 interface QuestionRendererProps {
   question: Question;
@@ -22,11 +22,8 @@ interface QuestionRendererProps {
 export const QuestionRenderer = ({ question, value, onChange, error }: QuestionRendererProps) => {
   const handleCheckboxChange = (optionId: string, checked: boolean) => {
     const currentValues = Array.isArray(value) ? value : [];
-    if (checked) {
-      onChange([...currentValues, optionId]);
-    } else {
-      onChange(currentValues.filter(v => v !== optionId));
-    }
+    if (checked) onChange([...currentValues, optionId]);
+    else onChange(currentValues.filter((v) => v !== optionId));
   };
 
   return (
@@ -36,34 +33,32 @@ export const QuestionRenderer = ({ question, value, onChange, error }: QuestionR
           {question.title}
           {question.required && <span className="ml-1 text-destructive">*</span>}
         </h3>
-        {question.description && (
-          <p className="mt-1 text-sm text-muted-foreground">{question.description}</p>
-        )}
+        {question.description && <p className="mt-1 text-sm text-muted-foreground">{question.description}</p>}
       </div>
 
       <div className="space-y-3">
-        {question.type === 'short_answer' && (
+        {question.type === "short_answer" && (
           <Input
             placeholder="Your answer"
-            value={typeof value === 'string' ? value : ''}
+            value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            className={error ? 'border-destructive' : ''}
+            className={error ? "border-destructive" : ""}
           />
         )}
 
-        {question.type === 'paragraph' && (
+        {question.type === "paragraph" && (
           <Textarea
             placeholder="Your answer"
-            value={typeof value === 'string' ? value : ''}
+            value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
             rows={4}
-            className={error ? 'border-destructive' : ''}
+            className={error ? "border-destructive" : ""}
           />
         )}
 
-        {question.type === 'multiple_choice' && (
+        {question.type === "multiple_choice" && (
           <RadioGroup
-            value={typeof value === 'string' ? value : ''}
+            value={typeof value === "string" ? value : ""}
             onValueChange={onChange}
             className="space-y-2"
           >
@@ -78,7 +73,7 @@ export const QuestionRenderer = ({ question, value, onChange, error }: QuestionR
           </RadioGroup>
         )}
 
-        {question.type === 'checkbox' && (
+        {question.type === "checkboxes" && (
           <div className="space-y-2">
             {question.options?.map((option) => (
               <div key={option.id} className="flex items-center space-x-3">
@@ -95,12 +90,9 @@ export const QuestionRenderer = ({ question, value, onChange, error }: QuestionR
           </div>
         )}
 
-        {question.type === 'dropdown' && (
-          <Select
-            value={typeof value === 'string' ? value : ''}
-            onValueChange={onChange}
-          >
-            <SelectTrigger className={error ? 'border-destructive' : ''}>
+        {question.type === "dropdown" && (
+          <Select value={typeof value === "string" ? value : ""} onValueChange={onChange}>
+            <SelectTrigger className={error ? "border-destructive" : ""}>
               <SelectValue placeholder="Choose an option" />
             </SelectTrigger>
             <SelectContent>
@@ -114,9 +106,7 @@ export const QuestionRenderer = ({ question, value, onChange, error }: QuestionR
         )}
       </div>
 
-      {error && (
-        <p className="mt-2 text-sm text-destructive">{error}</p>
-      )}
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
     </div>
   );
 };

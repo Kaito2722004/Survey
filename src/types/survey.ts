@@ -2,7 +2,7 @@ export type QuestionType =
   | 'short_answer' 
   | 'paragraph' 
   | 'multiple_choice' 
-  | 'checkbox' 
+  | 'checkboxes' 
   | 'dropdown';
 
 export interface QuestionOption {
@@ -10,14 +10,22 @@ export interface QuestionOption {
   text: string;
 }
 
+export type QuestionCategory =
+  | "teaching"
+  | "communication"
+  | "knowledge"
+  | "support"
+  | "overall";
+
 export interface Question {
   id: string;
-  type: QuestionType;
+  type: QuestionType; // keep yours
   title: string;
-  description?: string;
   required: boolean;
   options?: QuestionOption[];
+  category?: QuestionCategory; // ✅ ADD THIS
 }
+
 
 export interface Survey {
   id: string;

@@ -12,6 +12,7 @@ import {
   Plus,
   Type,
   AlignLeft,
+  Star,
 } from "lucide-react";
 
 import { Header } from "@/components/layout/Header";
@@ -33,27 +34,24 @@ const questionTypes: { value: QuestionType; label: string; icon: JSX.Element }[]
   { value: "short_answer", label: "Short Answer", icon: <Type className="h-4 w-4" /> },
   { value: "paragraph", label: "Paragraph", icon: <AlignLeft className="h-4 w-4" /> },
   { value: "multiple_choice", label: "Multiple Choice", icon: <CircleDot className="h-4 w-4" /> },
-  // ✅ DB expects "checkboxes"
-  { value: "checkbox", label: "Checkboxes", icon: <CheckSquare className="h-4 w-4" /> },
+  { value: "checkboxes", label: "Checkboxes", icon: <CheckSquare className="h-4 w-4" /> },
   { value: "dropdown", label: "Dropdown", icon: <ChevronDown className="h-4 w-4" /> },
 ];
 
+const HAS_OPTIONS = new Set<QuestionType>(["multiple_choice", "checkboxes", "dropdown"]);
+
 export default function SurveyEditor() {
-  // ✅ Hooks ALWAYS run (no early return before hooks)
   const params = useParams<{ surveyId?: string; id?: string; survey_id?: string }>();
   const navigate = useNavigate();
 
   const { getSurvey, updateSurvey, addQuestion, updateQuestion, deleteQuestion, isLoading } = useSurvey();
 
-  // accept multiple param names safely
   const surveyId = params.surveyId || params.id || params.survey_id || "";
-
   const survey = surveyId ? getSurvey(surveyId) : null;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
-  // ✅ Handle missing id AFTER hooks
   useEffect(() => {
     if (!surveyId) {
       toast.error("Missing survey id");
@@ -61,7 +59,6 @@ export default function SurveyEditor() {
     }
   }, [surveyId, navigate]);
 
-  // Fill local fields when survey loads
   useEffect(() => {
     if (survey) {
       setTitle(survey.title ?? "");
@@ -69,7 +66,6 @@ export default function SurveyEditor() {
     }
   }, [survey]);
 
-  // If finished loading and not found -> back
   useEffect(() => {
     if (!isLoading && surveyId && !survey) {
       toast.error("Survey not found");
@@ -97,7 +93,7 @@ export default function SurveyEditor() {
       type,
       title: "Untitled Question",
       required: false,
-      options: ["multiple_choice", "checkboxes", "dropdown"].includes(type)
+      options: HAS_OPTIONS.has(type)
         ? [
             { id: crypto.randomUUID(), text: "Option 1" },
             { id: crypto.randomUUID(), text: "Option 2" },
@@ -106,6 +102,22 @@ export default function SurveyEditor() {
     };
 
     await addQuestion(surveyId, newQuestion);
+  };
+
+  // ✅ Rating question for charts (1–5)
+  const handleAddRatingQuestion = async () => {
+    if (!surveyId) return;
+
+    const ratingQuestion: Question = {
+      id: crypto.randomUUID(),
+      type: "multiple_choice",
+      title: "Overall teaching effectiveness",
+      required: true,
+      options: ["1", "2", "3", "4", "5"].map((t, i) => ({ id: `opt-${i}`, text: t })),
+    };
+
+    await addQuestion(surveyId, ratingQuestion);
+    toast.success("Rating question added (1–5)");
   };
 
   const handleCopyLink = () => {
@@ -120,7 +132,6 @@ export default function SurveyEditor() {
     window.open("/survey/" + surveyId, "_blank");
   };
 
-  // UI states
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
@@ -133,7 +144,6 @@ export default function SurveyEditor() {
   }
 
   if (!survey) {
-    // will redirect via useEffect if not found/missing
     return (
       <div className="min-h-screen bg-background">
         <Header />
@@ -148,7 +158,6 @@ export default function SurveyEditor() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      {/* Toolbar */}
       <div className="sticky top-16 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
         <div className="container flex h-14 items-center justify-between gap-4">
           <Button variant="ghost" size="sm" onClick={() => navigate("/admin/surveys")}>
@@ -165,6 +174,11 @@ export default function SurveyEditor() {
             <Button variant="outline" size="sm" onClick={handlePreview}>
               <Eye className="mr-2 h-4 w-4" />
               Preview
+            </Button>
+
+            <Button variant="secondary" size="sm" onClick={handleAddRatingQuestion}>
+              <Star className="mr-2 h-4 w-4" />
+              Add Rating (1–5)
             </Button>
 
             <DropdownMenu>
@@ -192,7 +206,6 @@ export default function SurveyEditor() {
         </div>
       </div>
 
-      {/* Editor */}
       <main className="container py-8 space-y-8">
         <div className="card-elevated p-6 space-y-4">
           <div className="space-y-2">
@@ -202,11 +215,7 @@ export default function SurveyEditor() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Description (optional)</label>
-            <Textarea
-              value={description}
-              onChange={(e) => handleDescriptionChange(e.target.value)}
-              rows={3}
-            />
+            <Textarea value={description} onChange={(e) => handleDescriptionChange(e.target.value)} rows={3} />
           </div>
         </div>
 

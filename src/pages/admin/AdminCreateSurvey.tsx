@@ -95,7 +95,8 @@ export default function AdminCreateSurvey() {
       if (!survey) throw new Error("Survey create returned null");
 
       toast.success("Survey created. Add questions now.");
-      navigate(`/survey/${survey.id}/edit`);
+      navigate(`/admin/surveys/${survey.id}/edit`);
+
     } catch (e) {
       console.error(e);
       toast.error("Failed to create survey");

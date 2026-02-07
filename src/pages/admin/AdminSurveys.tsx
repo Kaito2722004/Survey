@@ -11,7 +11,7 @@ type SurveyRow = {
   title: string;
   description: string | null;
   is_published: boolean;
-  response_count: number | null; // ✅ can be null in DB
+  response_count: number | null;
   created_at: string;
   semester_id: string | null;
   teacher_id: string | null;
@@ -40,21 +40,17 @@ export default function AdminSurveys() {
 
         const { data, error } = await supabase
           .from("surveys")
-          .select(
-            "id,title,description,is_published,response_count,created_at,semester_id,teacher_id,user_id"
-          )
+          .select("id,title,description,is_published,response_count,created_at,semester_id,teacher_id,user_id")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
 
         if (error) throw error;
 
         if (alive) setRows((data ?? []) as SurveyRow[]);
-      } catch (e: any) {
-        // ✅ Abort is NOT a real error; ignore it
-        if (e?.name === "AbortError") return;
-
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Failed to load surveys";
         console.error(e);
-        if (alive) toast.error(e?.message || "Failed to load surveys");
+        if (alive) toast.error(msg);
         if (alive) setRows([]);
       } finally {
         if (alive) setLoading(false);
@@ -62,7 +58,6 @@ export default function AdminSurveys() {
     };
 
     load();
-
     return () => {
       alive = false;
     };
@@ -75,7 +70,6 @@ export default function AdminSurveys() {
   }, [q, rows]);
 
   const reload = async () => {
-    // simple reload function (no AbortError crash)
     setLoading(true);
     try {
       const { data: authData, error: authErr } = await supabase.auth.getUser();
@@ -86,18 +80,16 @@ export default function AdminSurveys() {
 
       const { data, error } = await supabase
         .from("surveys")
-        .select(
-          "id,title,description,is_published,response_count,created_at,semester_id,teacher_id,user_id"
-        )
+        .select("id,title,description,is_published,response_count,created_at,semester_id,teacher_id,user_id")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
       setRows((data ?? []) as SurveyRow[]);
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to load surveys";
       console.error(e);
-      toast.error(e?.message || "Failed to load surveys");
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -109,29 +101,19 @@ export default function AdminSurveys() {
       <main className="container py-8 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center gap-3">
           <h1 className="text-3xl font-semibold flex-1">My Surveys</h1>
-          <Button onClick={() => navigate("/admin/create-survey")}>
-            Create Survey
-          </Button>
+          <Button onClick={() => navigate("/admin/create-survey")}>Create Survey</Button>
         </div>
 
         <div className="card-elevated p-4 flex flex-col md:flex-row gap-3">
-          <Input
-            placeholder="Search by title..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <Button variant="outline" onClick={reload} disabled={loading}>
-            Refresh
-          </Button>
+          <Input placeholder="Search by title..." value={q} onChange={(e) => setQ(e.target.value)} />
+          <Button variant="outline" onClick={reload} disabled={loading}>Refresh</Button>
         </div>
 
         <div className="card-elevated p-4">
           {loading ? (
             <div className="text-sm text-muted-foreground">Loading...</div>
           ) : filtered.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              No surveys found. Create one first.
-            </div>
+            <div className="text-sm text-muted-foreground">No surveys found. Create one first.</div>
           ) : (
             <div className="divide-y">
               {filtered.map((s) => {
@@ -142,24 +124,26 @@ export default function AdminSurveys() {
                     <div className="flex-1">
                       <div className="font-medium">{s.title}</div>
                       <div className="text-sm text-muted-foreground">
-                        {s.is_published ? "Published" : "Draft"} • Responses:{" "}
-                        {responses}
+                        {s.is_published ? "Published" : "Draft"} • Responses: {responses}
                       </div>
                     </div>
 
-                    <Button
-                      variant="outline"
-                      onClick={() => navigate("/admin/surveys/" + s.id + "/edit")}
-                    >
+                    <Button variant="outline" onClick={() => navigate(`/admin/surveys/${s.id}/edit`)}>
                       Edit Questions
                     </Button>
 
-                    <Button
-                      onClick={() =>
-                        navigate("/admin/surveys/" + s.id + "/responses")
-                      }
-                    >
+                    <Button onClick={() => navigate(`/admin/surveys/${s.id}/responses`)}>
                       Responses
+                    </Button>
+
+                    {/* ✅ Charts button */}
+                    <Button
+                      variant="secondary"
+                      onClick={() => navigate(`/admin/surveys/${s.id}/analytics`)}
+                      disabled={responses === 0}
+                      title={responses === 0 ? "Submit at least 1 response to view charts" : "View charts"}
+                    >
+                      Charts
                     </Button>
                   </div>
                 );

@@ -1,97 +1,118 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useSurvey } from '@/contexts/SurveyContext';
-import { Header } from '@/components/layout/Header';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
-import {
-  ArrowLeft,
-  Download,
-  FileText,
-  BarChart3,
-  Table as TableIcon,
-  Loader2,
-} from 'lucide-react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from 'recharts';
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
+import { Header } from "@/components/layout/Header";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Loader2, ArrowLeft, Download } from "lucide-react";
 
-const COLORS = [
-  'hsl(243, 75%, 59%)',
-  'hsl(12, 76%, 61%)',
-  'hsl(142, 76%, 36%)',
-  'hsl(48, 96%, 53%)',
-  'hsl(280, 75%, 55%)',
-];
-
-interface SurveyResponse {
+type DbQuestion = {
   id: string;
-  surveyId: string;
-  answers: Record<string, string | string[]>;
-  submittedAt: Date;
+  title: string;
+  type: string;
+  options: any | null; // keep loose; your DB may store text[] or json
+  order_index: number | null;
+};
+
+type DbSurveyResponse = {
+  id: string;
+  survey_id: string;
+  answers: Record<string, unknown> | null;
+  submitted_at: string;
+};
+
+function isAbortError(err: unknown) {
+  const msg = String((err as any)?.message ?? err ?? "").toLowerCase();
+  return msg.includes("abort");
 }
 
-const SurveyResponses = () => {
-  const { id } = useParams<{ id: string }>();
+export default function AdminSurveyResponses() {
+  // ✅ IMPORTANT: route is /admin/surveys/:surveyId/responses
+  const { surveyId } = useParams<{ surveyId: string }>();
   const navigate = useNavigate();
-  const { getSurvey, getResponses, isLoading } = useSurvey();
-  const [responses, setResponses] = useState<SurveyResponse[]>([]);
-  const [isLoadingResponses, setIsLoadingResponses] = useState(true);
 
-  const survey = getSurvey(id!);
+  const [loading, setLoading] = useState(true);
+  const [questions, setQuestions] = useState<DbQuestion[]>([]);
+  const [responses, setResponses] = useState<DbSurveyResponse[]>([]);
 
- useEffect(() => {
-  let cancelled = false;
+  const qMap = useMemo(() => {
+    const m = new Map<string, DbQuestion>();
+    questions.forEach((q) => m.set(q.id, q));
+    return m;
+  }, [questions]);
 
-  const fetchResponses = async () => {
-    if (!id) return;
+  useEffect(() => {
+    let alive = true;
 
-    setIsLoadingResponses(true);
+    const load = async () => {
+      if (!surveyId) {
+        setLoading(false);
+        toast.error("Missing surveyId in URL.");
+        return;
+      }
 
-    try {
-      const data = await getResponses(id);
-      if (!cancelled) setResponses(data);
-    } catch (e: any) {
-      // ✅ Ignore abort errors
-      const msg = String(e?.message || e || "").toLowerCase();
-      if (msg.includes("aborted") || msg.includes("aborterror")) return;
+      setLoading(true);
+      try {
+        const qRes = await supabase
+          .from("questions")
+          .select("id,title,type,options,order_index")
+          .eq("survey_id", surveyId)
+          .order("order_index", { ascending: true });
 
-      console.error("getResponses failed:", e);
-      toast.error(e?.message ?? "Failed to load responses");
-      if (!cancelled) setResponses([]);
-    } finally {
-      if (!cancelled) setIsLoadingResponses(false);
-    }
+        if (qRes.error) throw qRes.error;
+
+        const rRes = await supabase
+          .from("survey_responses")
+          .select("id,survey_id,answers,submitted_at")
+          .eq("survey_id", surveyId)
+          .order("submitted_at", { ascending: false });
+
+        if (rRes.error) throw rRes.error;
+
+        if (!alive) return;
+
+        setQuestions((qRes.data ?? []) as DbQuestion[]);
+        setResponses((rRes.data ?? []) as DbSurveyResponse[]);
+      } catch (e: unknown) {
+        if (isAbortError(e)) return;
+        console.error("AdminSurveyResponses load error:", e);
+        toast.error(String((e as any)?.message ?? e ?? "Failed to load responses"));
+
+        if (alive) {
+          setQuestions([]);
+          setResponses([]);
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [surveyId]);
+
+  const exportJSON = () => {
+    const data = responses.map((r) => ({
+      id: r.id,
+      submitted_at: r.submitted_at,
+      answers: r.answers ?? {},
+    }));
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `survey-${surveyId}-responses.json`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+    toast.success("Exported JSON");
   };
 
-  fetchResponses();
-
-  return () => {
-    cancelled = true;
-  };
-}, [id, getResponses]);
-
-
-  if (isLoading || isLoadingResponses) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
@@ -102,274 +123,79 @@ const SurveyResponses = () => {
     );
   }
 
-  if (!survey) {
-    navigate('/dashboard');
-    return null;
-  }
-
-  const getAnswerText = (questionId: string, answer: string | string[]): string => {
-    const question = survey.questions.find((q) => q.id === questionId);
-    if (!question) return '';
-
-    if (question.options && (question.type === 'multiple_choice' || question.type === 'dropdown')) {
-      const option = question.options.find((o) => o.id === answer);
-      return option?.text || String(answer);
-    }
-
-    if (question.options && question.type === 'checkbox' && Array.isArray(answer)) {
-      return answer
-        .map((a) => question.options?.find((o) => o.id === a)?.text || a)
-        .filter(Boolean)
-        .join(', ');
-    }
-
-    return typeof answer === 'string' ? answer : answer.join(', ');
-  };
-
-  const getChartData = (questionId: string) => {
-    const question = survey.questions.find((q) => q.id === questionId);
-    if (!question || !question.options) return [];
-
-    const counts: Record<string, number> = {};
-    question.options.forEach((opt) => {
-      counts[opt.id] = 0;
-    });
-
-    responses.forEach((response) => {
-      const answer = response.answers[questionId];
-      if (Array.isArray(answer)) {
-        answer.forEach((a) => {
-          if (counts[a] !== undefined) counts[a]++;
-        });
-      } else if (answer && counts[answer] !== undefined) {
-        counts[answer]++;
-      }
-    });
-
-    return question.options.map((opt) => ({
-      name: opt.text,
-      value: counts[opt.id],
-    }));
-  };
-
-  const handleExport = (format: 'csv' | 'json') => {
-    const exportData = responses.map((response) => {
-      const row: Record<string, string> = {
-        submittedAt: response.submittedAt.toISOString(),
-      };
-      survey.questions.forEach((q) => {
-        row[q.title] = getAnswerText(q.id, response.answers[q.id] || '');
-      });
-      return row;
-    });
-
-    let content: string;
-    let filename: string;
-    let type: string;
-
-    if (format === 'csv') {
-      const headers = ['Submitted At', ...survey.questions.map((q) => q.title)];
-      const rows = exportData.map((row) => [
-        row.submittedAt,
-        ...survey.questions.map((q) => `"${row[q.title] || ''}"`),
-      ]);
-      content = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-      filename = `${survey.title}-responses.csv`;
-      type = 'text/csv';
-    } else {
-      content = JSON.stringify(exportData, null, 2);
-      filename = `${survey.title}-responses.json`;
-      type = 'application/json';
-    }
-
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported as ${format.toUpperCase()}`);
-  };
-
-  const choiceQuestions = survey.questions.filter((q) =>
-    ['multiple_choice', 'checkbox', 'dropdown'].includes(q.type)
-  );
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
       <div className="sticky top-16 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
         <div className="container flex h-14 items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => navigate(`/survey/${id}/edit`)}>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => navigate("/admin/surveys")}>
               <ArrowLeft className="mr-1 h-4 w-4" />
-              Edit Survey
+              Back
             </Button>
           </div>
+
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
-              <Download className="mr-1 h-4 w-4" />
-              CSV
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport('json')}>
+            <Button variant="outline" size="sm" onClick={exportJSON} disabled={responses.length === 0}>
               <Download className="mr-1 h-4 w-4" />
               JSON
+            </Button>
+
+            {/* optional: if you have chart route */}
+            <Button asChild size="sm">
+              <Link to={`/admin/surveys/${surveyId}/chart`}>View Charts</Link>
             </Button>
           </div>
         </div>
       </div>
 
-      <main className="container py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold text-foreground">{survey.title}</h1>
-          <p className="mt-2 text-muted-foreground">
-            {responses.length} response{responses.length !== 1 ? 's' : ''}
+      <main className="container py-8 space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold text-foreground">Survey Responses</h1>
+          <p className="mt-1 text-muted-foreground">
+            Total: {responses.length} response{responses.length !== 1 ? "s" : ""}
           </p>
         </div>
 
         {responses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border py-16">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
-              <FileText className="h-8 w-8 text-muted-foreground" />
+          <div className="card-elevated p-8">
+            <div className="text-lg font-medium">No responses yet</div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              If you expected responses here, it’s usually RLS on <code>survey_responses</code>.
             </div>
-            <h3 className="mb-2 text-lg font-medium text-foreground">No responses yet</h3>
-            <p className="mb-4 text-center text-muted-foreground">
-              Share your survey to start collecting responses
-            </p>
-            <Button
-              variant="outline"
-              onClick={() => {
-                navigator.clipboard.writeText(`${window.location.origin}/survey/${id}`);
-                toast.success('Link copied!');
-              }}
-            >
-              Copy Survey Link
-            </Button>
           </div>
         ) : (
-          <Tabs defaultValue="table" className="w-full">
-            <TabsList className="mb-6">
-              <TabsTrigger value="table" className="gap-2">
-                <TableIcon className="h-4 w-4" />
-                Table
-              </TabsTrigger>
-              <TabsTrigger value="charts" className="gap-2">
-                <BarChart3 className="h-4 w-4" />
-                Charts
-              </TabsTrigger>
-            </TabsList>
+          <div className="card-elevated p-6 space-y-4">
+            {responses.map((r) => (
+              <div key={r.id} className="rounded-lg border border-border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-medium">Response</div>
+                  <div className="text-sm text-muted-foreground">
+                    {new Date(r.submitted_at).toLocaleString()}
+                  </div>
+                </div>
 
-            <TabsContent value="table">
-              <div className="card-elevated overflow-hidden">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-40">Submitted</TableHead>
-                        {survey.questions.map((q) => (
-                          <TableHead key={q.id}>{q.title}</TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {responses.map((response) => (
-                        <TableRow key={response.id}>
-                          <TableCell className="whitespace-nowrap">
-                            {new Intl.DateTimeFormat('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            }).format(response.submittedAt)}
-                          </TableCell>
-                          {survey.questions.map((q) => (
-                            <TableCell key={q.id}>
-                              {getAnswerText(q.id, response.answers[q.id] || '')}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                <div className="mt-4 space-y-3">
+                  {Object.entries(r.answers ?? {}).map(([qid, val]) => {
+                    const q = qMap.get(qid);
+                    return (
+                      <div key={qid} className="text-sm">
+                        <div className="font-medium text-foreground">{q?.title ?? `Question ${qid}`}</div>
+                        <div className="text-muted-foreground break-words">
+                          {typeof val === "string" || typeof val === "number"
+                            ? String(val)
+                            : JSON.stringify(val)}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            </TabsContent>
-
-            <TabsContent value="charts">
-              {choiceQuestions.length === 0 ? (
-                <div className="card-elevated p-8 text-center">
-                  <p className="text-muted-foreground">
-                    Add multiple choice, checkbox, or dropdown questions to see charts.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid gap-6 md:grid-cols-2">
-                  {choiceQuestions.map((question) => (
-                    <div key={question.id} className="card-elevated p-6">
-                      <h3 className="mb-4 font-medium text-foreground">{question.title}</h3>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          {question.type === 'checkbox' ? (
-                            <BarChart data={getChartData(question.id)} layout="vertical">
-                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                              <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
-                              <YAxis
-                                dataKey="name"
-                                type="category"
-                                width={100}
-                                stroke="hsl(var(--muted-foreground))"
-                              />
-                              <Tooltip
-                                contentStyle={{
-                                  backgroundColor: 'hsl(var(--card))',
-                                  border: '1px solid hsl(var(--border))',
-                                  borderRadius: '8px',
-                                }}
-                              />
-                              <Bar dataKey="value" fill="hsl(243, 75%, 59%)" radius={[0, 4, 4, 0]} />
-                            </BarChart>
-                          ) : (
-                            <PieChart>
-                              <Pie
-                                data={getChartData(question.id)}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                outerRadius={80}
-                                fill="#8884d8"
-                                dataKey="value"
-                                label={({ name, percent }) =>
-                                  percent > 0 ? `${name} (${(percent * 100).toFixed(0)}%)` : ''
-                                }
-                              >
-                                {getChartData(question.id).map((_, index) => (
-                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                              </Pie>
-                              <Tooltip
-                                contentStyle={{
-                                  backgroundColor: 'hsl(var(--card))',
-                                  border: '1px solid hsl(var(--border))',
-                                  borderRadius: '8px',
-                                }}
-                              />
-                              <Legend />
-                            </PieChart>
-                          )}
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
+            ))}
+          </div>
         )}
       </main>
     </div>
   );
-};
-
-export default SurveyResponses;
+}
