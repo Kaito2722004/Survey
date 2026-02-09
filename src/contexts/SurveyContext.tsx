@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 import { Question } from "@/types/survey";
@@ -12,8 +18,15 @@ interface Survey {
   updatedAt: Date;
   isPublished: boolean;
   responseCount: number;
+
+  // Sem+Teacher surveys (existing)
   semesterId?: string | null;
   teacherId?: string | null;
+
+  // General survey targeting (new)
+  // [] => whole school
+  // ["semId1","semId2"] => only those semesters
+  targetSemesterIds?: string[];
 }
 
 interface SurveyResponse {
@@ -27,49 +40,81 @@ interface SurveyContextType {
   surveys: Survey[];
   responses: SurveyResponse[];
   isLoading: boolean;
-  createSurvey: (title: string, description?: string, semesterId?: string | null, teacherId?: string | null) => Promise<Survey | null>;
+
+  createSurvey: (
+    title: string,
+    description?: string,
+    semesterId?: string | null,
+    teacherId?: string | null
+  ) => Promise<Survey | null>;
+
   updateSurvey: (id: string, updates: Partial<Survey>) => Promise<void>;
   deleteSurvey: (id: string) => Promise<void>;
   getSurvey: (id: string) => Survey | undefined;
   getSurveyPublic: (id: string) => Promise<Survey | null>;
+
   addQuestion: (surveyId: string, question: Question) => Promise<void>;
-  updateQuestion: (surveyId: string, questionId: string, updates: Partial<Question>) => Promise<void>;
+  updateQuestion: (
+    surveyId: string,
+    questionId: string,
+    updates: Partial<Question>
+  ) => Promise<void>;
   deleteQuestion: (surveyId: string, questionId: string) => Promise<void>;
   reorderQuestions: (surveyId: string, questions: Question[]) => Promise<void>;
-  submitResponse: (surveyId: string, answers: Record<string, string | string[]>) => Promise<void>;
+
+  submitResponse: (
+    surveyId: string,
+    answers: Record<string, string | string[]>
+  ) => Promise<void>;
+
   getResponses: (surveyId: string) => Promise<SurveyResponse[]>;
   refreshSurveys: () => Promise<void>;
 }
 
 const SurveyContext = createContext<SurveyContextType | undefined>(undefined);
 
-// ✅ map UI <-> DB types
-const toDbType = (uiType: Question["type"]) => (uiType === "checkboxes" ? "checkboxes" : uiType);
-const toUiType = (dbType: string) => (dbType === "checkboxes" ? "checkboxes" : (dbType as Question["type"]));
+/** UI types sometimes use "checkboxes" — DB must be "checkbox" */
+const toDbType = (uiType: Question["type"]) => {
+  if (uiType === ("checkboxes" as any) || uiType === ("checkbox" as any)) return "checkbox";
+  return uiType as string;
+};
+const toUiType = (dbType: string) => {
+  if (dbType === "checkboxes" || dbType === "checkbox") return "checkbox" as Question["type"];
+  return dbType as Question["type"];
+};
 
-// Helper to convert DB question to frontend format
+function normalizeOptions(options: any): string[] {
+  if (!options) return [];
+  if (Array.isArray(options)) return options.map(String);
+  if (typeof options === "object" && Array.isArray(options.options)) {
+    return options.options.map(String);
+  }
+  return [];
+}
+
 const convertDbQuestion = (dbQuestion: {
   id: string;
   type: string;
   title: string;
-  options: string[] | null;
+  options: any | null;
   required: boolean;
   order_index: number;
   category?: string | null;
-}): Question => ({
-  id: dbQuestion.id,
-  type: toUiType(dbQuestion.type),
-  title: dbQuestion.title,
-  required: dbQuestion.required,
-  category: (dbQuestion.category ?? undefined) as any,
-  options: dbQuestion.options?.map((text, i) => ({
-    id: `opt-${i}`,
-    text,
-  })),
-});
+}): Question => {
+  const opts = normalizeOptions(dbQuestion.options);
+  return {
+    id: dbQuestion.id,
+    type: toUiType(dbQuestion.type),
+    title: dbQuestion.title,
+    required: dbQuestion.required,
+    category: (dbQuestion.category ?? undefined) as any,
+    options: opts.map((text, i) => ({ id: `opt-${i}`, text })),
+  };
+};
 
 export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [surveys, setSurveys] = useState<Survey[]>([]);
+  const [responses, setResponses] = useState<SurveyResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
 
@@ -80,48 +125,66 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
+    setIsLoading(true);
     try {
+      // Load surveys (+ their target semesters via relation)
       const { data: surveysData, error: surveysError } = await supabase
         .from("surveys")
-        .select("*")
+        .select("id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id, survey_semesters(semester_id)")
         .eq("user_id", user.id)
         .order("updated_at", { ascending: false });
 
       if (surveysError) throw surveysError;
 
-      if (!surveysData || surveysData.length === 0) {
+      const base = (surveysData ?? []) as any[];
+      if (base.length === 0) {
         setSurveys([]);
         setIsLoading(false);
         return;
       }
 
-      const surveyIds = surveysData.map((s) => s.id);
-      const { data: questionsData, error: questionsError } = await supabase
+      const surveyIds = base.map((s) => s.id);
+
+      // Load questions for those surveys
+      const { data: qData, error: qErr } = await supabase
         .from("questions")
-        .select("*")
+        .select("id,survey_id,title,type,options,required,order_index,category")
         .in("survey_id", surveyIds)
         .order("order_index", { ascending: true });
 
-      if (questionsError) throw questionsError;
+      if (qErr) throw qErr;
 
-      const surveysWithQuestions: Survey[] = surveysData.map((survey) => ({
-        id: survey.id,
-        title: survey.title,
-        description: survey.description || undefined,
-        isPublished: survey.is_published,
-        responseCount: survey.response_count,
-        createdAt: new Date(survey.created_at),
-        updatedAt: new Date(survey.updated_at),
-        semesterId: survey.semester_id ?? null,
-        teacherId: survey.teacher_id ?? null,
-        questions: (questionsData || [])
-          .filter((q) => q.survey_id === survey.id)
-          .map(convertDbQuestion),
-      }));
+      const bySurvey = new Map<string, Question[]>();
+      for (const q of (qData ?? []) as any[]) {
+        const converted = convertDbQuestion(q);
+        const arr = bySurvey.get(q.survey_id) ?? [];
+        arr.push(converted);
+        bySurvey.set(q.survey_id, arr);
+      }
 
-      setSurveys(surveysWithQuestions);
-    } catch (error) {
-      console.error("Error fetching surveys:", error);
+      const mapped: Survey[] = base.map((s) => {
+        const targetSemesterIds =
+          (s.survey_semesters ?? []).map((x: any) => x.semester_id).filter(Boolean) ?? [];
+
+        return {
+          id: s.id,
+          title: s.title,
+          description: s.description ?? undefined,
+          questions: bySurvey.get(s.id) ?? [],
+          createdAt: new Date(s.created_at),
+          updatedAt: new Date(s.updated_at),
+          isPublished: !!s.is_published,
+          responseCount: s.response_count ?? 0,
+          semesterId: s.semester_id ?? null,
+          teacherId: s.teacher_id ?? null,
+          targetSemesterIds,
+        };
+      });
+
+      setSurveys(mapped);
+    } catch (e) {
+      console.error(e);
+      setSurveys([]);
     } finally {
       setIsLoading(false);
     }
@@ -131,9 +194,50 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     fetchSurveys();
   }, [fetchSurveys]);
 
-  const refreshSurveys = async () => {
-    setIsLoading(true);
+  const refreshSurveys = useCallback(async () => {
     await fetchSurveys();
+  }, [fetchSurveys]);
+
+  const getSurvey = (id: string) => surveys.find((s) => s.id === id);
+
+  const getSurveyPublic = async (id: string): Promise<Survey | null> => {
+    try {
+      const { data: s, error: sErr } = await supabase
+        .from("surveys")
+        .select("id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id, survey_semesters(semester_id)")
+        .eq("id", id)
+        .single();
+
+      if (sErr) throw sErr;
+
+      const { data: qs, error: qErr } = await supabase
+        .from("questions")
+        .select("id,survey_id,title,type,options,required,order_index,category")
+        .eq("survey_id", id)
+        .order("order_index", { ascending: true });
+
+      if (qErr) throw qErr;
+
+      const targetSemesterIds =
+        (s as any).survey_semesters?.map((x: any) => x.semester_id).filter(Boolean) ?? [];
+
+      return {
+        id: s.id,
+        title: s.title,
+        description: s.description ?? undefined,
+        questions: (qs ?? []).map(convertDbQuestion),
+        createdAt: new Date(s.created_at),
+        updatedAt: new Date(s.updated_at),
+        isPublished: !!s.is_published,
+        responseCount: s.response_count ?? 0,
+        semesterId: s.semester_id ?? null,
+        teacherId: s.teacher_id ?? null,
+        targetSemesterIds,
+      };
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
   };
 
   const createSurvey = async (
@@ -141,226 +245,167 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     description?: string,
     semesterId?: string | null,
     teacherId?: string | null
-  ): Promise<Survey | null> => {
+  ) => {
     if (!user) return null;
 
-    const { data, error } = await supabase
+    const res = await supabase
       .from("surveys")
       .insert({
         user_id: user.id,
         title,
-        description: description || null,
-        is_published: true,
+        description: description ?? null,
+        is_published: false,
+        response_count: 0,
         semester_id: semesterId ?? null,
         teacher_id: teacherId ?? null,
       })
-      .select()
+      .select("*")
       .single();
 
-    if (error) {
-      console.error("Error creating survey:", error);
-      return null;
-    }
+    if (res.error) throw res.error;
 
-    const newSurvey: Survey = {
-      id: data.id,
-      title: data.title,
-      description: data.description || undefined,
+    const created: Survey = {
+      id: res.data.id,
+      title: res.data.title,
+      description: res.data.description ?? undefined,
       questions: [],
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-      isPublished: data.is_published,
-      responseCount: data.response_count,
-      semesterId: data.semester_id ?? null,
-      teacherId: data.teacher_id ?? null,
+      createdAt: new Date(res.data.created_at),
+      updatedAt: new Date(res.data.updated_at),
+      isPublished: !!res.data.is_published,
+      responseCount: res.data.response_count ?? 0,
+      semesterId: res.data.semester_id ?? null,
+      teacherId: res.data.teacher_id ?? null,
+      targetSemesterIds: [],
     };
 
-    setSurveys((prev) => [newSurvey, ...prev]);
-    return newSurvey;
+    await fetchSurveys();
+    return created;
   };
 
   const updateSurvey = async (id: string, updates: Partial<Survey>) => {
-    const dbUpdates: Record<string, unknown> = {};
-    if (updates.title !== undefined) dbUpdates.title = updates.title;
-    if (updates.description !== undefined) dbUpdates.description = updates.description;
-    if (updates.isPublished !== undefined) dbUpdates.is_published = updates.isPublished;
+    const payload: any = {};
+    if (updates.title !== undefined) payload.title = updates.title;
+    if (updates.description !== undefined) payload.description = updates.description ?? null;
+    if (updates.isPublished !== undefined) payload.is_published = updates.isPublished;
+    if (updates.semesterId !== undefined) payload.semester_id = updates.semesterId ?? null;
+    if (updates.teacherId !== undefined) payload.teacher_id = updates.teacherId ?? null;
 
-    const { error } = await supabase
-      .from("surveys")
-      .update(dbUpdates)
-      .eq("id", id)
-      .eq("user_id", user?.id);
+    // For general targeting updates:
+    if (updates.targetSemesterIds !== undefined) {
+      // Remove old
+      const del = await supabase.from("survey_semesters").delete().eq("survey_id", id);
+      if (del.error) throw del.error;
 
-    if (error) {
-      console.error("Error updating survey:", error);
-      return;
+      // Insert new (empty => whole school)
+      if (updates.targetSemesterIds.length > 0) {
+        const ins = await supabase.from("survey_semesters").insert(
+          updates.targetSemesterIds.map((sid) => ({ survey_id: id, semester_id: sid }))
+        );
+        if (ins.error) throw ins.error;
+      }
     }
 
-    setSurveys((prev) =>
-      prev.map((survey) => (survey.id === id ? { ...survey, ...updates, updatedAt: new Date() } : survey))
-    );
+    const res = await supabase.from("surveys").update(payload).eq("id", id);
+    if (res.error) throw res.error;
+
+    await fetchSurveys();
   };
 
   const deleteSurvey = async (id: string) => {
-    const { error } = await supabase.from("surveys").delete().eq("id", id).eq("user_id", user?.id);
-    if (error) {
-      console.error("Error deleting survey:", error);
-      return;
-    }
-    setSurveys((prev) => prev.filter((survey) => survey.id !== id));
-  };
-
-  const getSurvey = (id: string) => surveys.find((s) => s.id === id);
-
-  const getSurveyPublic = async (id: string): Promise<Survey | null> => {
-    try {
-      const { data: surveyData, error: surveyError } = await supabase
-        .from("surveys")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
-
-      if (surveyError || !surveyData) return null;
-
-      const { data: questionsData, error: questionsError } = await supabase
-        .from("questions")
-        .select("*")
-        .eq("survey_id", id)
-        .order("order_index", { ascending: true });
-
-      if (questionsError) return null;
-
-      return {
-        id: surveyData.id,
-        title: surveyData.title,
-        description: surveyData.description || undefined,
-        isPublished: surveyData.is_published,
-        responseCount: surveyData.response_count,
-        createdAt: new Date(surveyData.created_at),
-        updatedAt: new Date(surveyData.updated_at),
-        questions: (questionsData || []).map(convertDbQuestion),
-      };
-    } catch (error) {
-      console.error("Error in getSurveyPublic:", error);
-      return null;
-    }
+    const res = await supabase.from("surveys").delete().eq("id", id);
+    if (res.error) throw res.error;
+    await fetchSurveys();
   };
 
   const addQuestion = async (surveyId: string, question: Question) => {
-    const survey = surveys.find((s) => s.id === surveyId);
-    const orderIndex = survey?.questions.length || 0;
+    // Store options in DB as string[]
+    const options = (question.options ?? []).map((o: any) => o.text);
 
-    const dbQuestion = {
+    const res = await supabase.from("questions").insert({
       survey_id: surveyId,
-      type: toDbType(question.type),
       title: question.title,
-      options: question.options?.map((o) => o.text) || [],
-      required: question.required,
-      order_index: orderIndex,
-      category: question.category ?? null,
-    };
+      type: toDbType(question.type),
+      options: options.length ? options : null,
+      required: !!question.required,
+      order_index: 9999,
+      category: (question as any).category ?? null,
+    });
 
-    const { data, error } = await supabase.from("questions").insert(dbQuestion).select().single();
-    if (error) {
-      console.error("Error adding question:", error);
-      return;
-    }
-
-    const newQuestion = convertDbQuestion(data);
-
-    setSurveys((prev) =>
-      prev.map((s) => (s.id === surveyId ? { ...s, questions: [...s.questions, newQuestion], updatedAt: new Date() } : s))
-    );
+    if (res.error) throw res.error;
+    await fetchSurveys();
   };
 
   const updateQuestion = async (surveyId: string, questionId: string, updates: Partial<Question>) => {
-    const dbUpdates: Record<string, unknown> = {};
-    if (updates.title !== undefined) dbUpdates.title = updates.title;
-    if (updates.type !== undefined) dbUpdates.type = toDbType(updates.type);
-    if (updates.required !== undefined) dbUpdates.required = updates.required;
-    if (updates.options !== undefined) dbUpdates.options = updates.options.map((o) => o.text);
-    if (updates.category !== undefined) dbUpdates.category = updates.category ?? null;
+    const payload: any = {};
+    if (updates.title !== undefined) payload.title = updates.title;
+    if (updates.type !== undefined) payload.type = toDbType(updates.type as any);
+    if (updates.required !== undefined) payload.required = !!updates.required;
+    if ((updates as any).category !== undefined) payload.category = (updates as any).category ?? null;
 
-    const { error } = await supabase.from("questions").update(dbUpdates).eq("id", questionId);
-    if (error) {
-      console.error("Error updating question:", error);
-      return;
+    if (updates.options !== undefined) {
+      const arr = (updates.options ?? []).map((o: any) => o.text);
+      payload.options = arr.length ? arr : null;
     }
 
-    setSurveys((prev) =>
-      prev.map((survey) =>
-        survey.id === surveyId
-          ? {
-              ...survey,
-              questions: survey.questions.map((q) => (q.id === questionId ? { ...q, ...updates } : q)),
-              updatedAt: new Date(),
-            }
-          : survey
-      )
-    );
+    const res = await supabase.from("questions").update(payload).eq("id", questionId).eq("survey_id", surveyId);
+    if (res.error) throw res.error;
+    await fetchSurveys();
   };
 
   const deleteQuestion = async (surveyId: string, questionId: string) => {
-    const { error } = await supabase.from("questions").delete().eq("id", questionId);
-    if (error) {
-      console.error("Error deleting question:", error);
-      return;
+    const res = await supabase.from("questions").delete().eq("id", questionId).eq("survey_id", surveyId);
+    if (res.error) throw res.error;
+    await fetchSurveys();
+  };
+
+  const reorderQuestions = async (surveyId: string, qs: Question[]) => {
+    const updates = qs.map((q, i) => ({ id: q.id, order_index: i }));
+    for (const u of updates) {
+      const res = await supabase.from("questions").update({ order_index: u.order_index }).eq("id", u.id).eq("survey_id", surveyId);
+      if (res.error) throw res.error;
     }
-
-    setSurveys((prev) =>
-      prev.map((survey) =>
-        survey.id === surveyId
-          ? { ...survey, questions: survey.questions.filter((q) => q.id !== questionId), updatedAt: new Date() }
-          : survey
-      )
-    );
+    await fetchSurveys();
   };
 
-  const reorderQuestions = async (surveyId: string, questions: Question[]) => {
-    const updates = questions.map((q, index) => supabase.from("questions").update({ order_index: index }).eq("id", q.id));
-    await Promise.all(updates);
+  const submitResponse = async (
+  surveyId: string,
+  answers: Record<string, string | string[]>
+) => {
+  const { error } = await supabase.from("survey_responses").insert({
+    survey_id: surveyId,
+    answers,
+  });
 
-    setSurveys((prev) =>
-      prev.map((survey) => (survey.id === surveyId ? { ...survey, questions, updatedAt: new Date() } : survey))
-    );
-  };
+  if (error) throw error;
 
-  const submitResponse = async (surveyId: string, answers: Record<string, string | string[]>) => {
-    const { error } = await supabase.from("survey_responses").insert({ survey_id: surveyId, answers });
-
-    if (error) {
-      console.error("Error submitting response:", error);
-      throw error;
-    }
-
-    setSurveys((prev) => prev.map((survey) => (survey.id === surveyId ? { ...survey, responseCount: survey.responseCount + 1 } : survey)));
-  };
+  // ✅ done. Don't call rpc here.
+};
 
   const getResponses = async (surveyId: string): Promise<SurveyResponse[]> => {
-    const { data, error } = await supabase
+    const res = await supabase
       .from("survey_responses")
-      .select("*")
+      .select("id,survey_id,answers,submitted_at")
       .eq("survey_id", surveyId)
       .order("submitted_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching responses:", error);
-      return [];
-    }
+    if (res.error) throw res.error;
 
-    return (data || []).map((r: any) => ({
+    const mapped: SurveyResponse[] = (res.data ?? []).map((r: any) => ({
       id: r.id,
       surveyId: r.survey_id,
-      answers: r.answers as Record<string, string | string[]>,
+      answers: (r.answers ?? {}) as Record<string, string | string[]>,
       submittedAt: new Date(r.submitted_at),
     }));
+
+    setResponses(mapped);
+    return mapped;
   };
 
   return (
     <SurveyContext.Provider
       value={{
         surveys,
-        responses: [],
+        responses,
         isLoading,
         createSurvey,
         updateSurvey,
@@ -382,7 +427,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 export const useSurvey = () => {
-  const context = useContext(SurveyContext);
-  if (!context) throw new Error("useSurvey must be used within a SurveyProvider");
-  return context;
+  const ctx = useContext(SurveyContext);
+  if (!ctx) throw new Error("useSurvey must be used inside SurveyProvider");
+  return ctx;
 };

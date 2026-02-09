@@ -4,9 +4,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Header } from "@/components/layout/Header";
 import { supabase } from "@/integrations/supabase/client";
-
+import { publishSurvey } from "@/services/surveyQueries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CheckCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -41,17 +42,23 @@ type SurveyKindFilter = "all" | "sem_tr" | "general";
 
 function formatDate(val: string) {
   try {
-    return new Date(val).toLocaleString();
+    return new Date(val).toLocaleDateString();
   } catch {
     return val;
   }
 }
 
 // Converts "YYYY-MM-DDTHH:mm" (datetime-local) to Date
-function dtLocalToDate(val: string): Date | null {
+// Converts "YYYY-MM-DD" (date input) into a full-day range
+function dateOnlyToRange(val: string): { start: Date; end: Date } | null {
   if (!val) return null;
-  const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+  const [y, m, d] = val.split("-").map(Number);
+  if (!y || !m || !d) return null;
+
+  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+  return { start, end };
 }
 
 export default function AdminSurveys() {
@@ -61,7 +68,7 @@ export default function AdminSurveys() {
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
   const [semesters, setSemesters] = useState<SemesterRow[]>([]);
   const [semesterNameById, setSemesterNameById] = useState<Map<string, string>>(
-    new Map(),
+    new Map()
   );
 
   // filters
@@ -102,7 +109,7 @@ export default function AdminSurveys() {
       const { data, error } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,response_count,created_at,semester_id,teacher_id,start_at,end_at",
+          "id,title,description,is_published,response_count,created_at,semester_id,teacher_id,start_at,end_at"
         )
         .order("created_at", { ascending: false });
 
@@ -118,6 +125,39 @@ export default function AdminSurveys() {
     }
   };
 
+  // ✅ Publishing (ONLY publishing-related changes)
+  const handlePublish = async (surveyId: string) => {
+    try {
+      await publishSurvey(surveyId);
+      toast.success("Survey published successfully");
+      await loadSurveys(); // ✅ refresh list
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Failed to publish survey");
+    }
+  };
+  const handleDelete = async (surveyId: string) => {
+  const ok = window.confirm(
+    "Are you sure you want to delete this survey?\nThis action cannot be undone."
+  );
+  if (!ok) return;
+
+  try {
+    const { error } = await supabase
+      .from("surveys")
+      .delete()
+      .eq("id", surveyId);
+
+    if (error) throw error;
+
+    toast.success("Survey deleted");
+    await loadSurveys(); // refresh list
+  } catch (e: any) {
+    console.error(e);
+    toast.error(e?.message ?? "Failed to delete survey");
+  }
+};
+
   useEffect(() => {
     // initial load
     loadSemesters();
@@ -127,8 +167,8 @@ export default function AdminSurveys() {
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const from = dtLocalToDate(fromDT);
-    const to = dtLocalToDate(toDT);
+    const fromRange = dateOnlyToRange(fromDT);
+const toRange = dateOnlyToRange(toDT);
 
     return surveys.filter((x) => {
       // kind filter
@@ -143,8 +183,8 @@ export default function AdminSurveys() {
 
       // date filter (by created_at)
       const created = new Date(x.created_at);
-      if (from && created < from) return false;
-      if (to && created > to) return false;
+if (fromRange && created < fromRange.start) return false;
+if (toRange && created > toRange.end) return false;
 
       // search filter (title/desc/id)
       if (!s) return true;
@@ -250,11 +290,11 @@ export default function AdminSurveys() {
                 Created from
               </div>
               <Input
-                type="datetime-local"
-                value={fromDT}
-                onChange={(e) => setFromDT(e.target.value)}
-                className="w-[220px]"
-              />
+  type="date"
+  value={fromDT}
+  onChange={(e) => setFromDT(e.target.value)}
+  className="w-[220px]"
+/>
             </div>
 
             <div>
@@ -262,11 +302,11 @@ export default function AdminSurveys() {
                 Created to
               </div>
               <Input
-                type="datetime-local"
-                value={toDT}
-                onChange={(e) => setToDT(e.target.value)}
-                className="w-[220px]"
-              />
+  type="date"
+  value={toDT}
+  onChange={(e) => setToDT(e.target.value)}
+  className="w-[220px]"
+/>
             </div>
 
             <div className="flex gap-2 pb-[2px]">
@@ -280,17 +320,15 @@ export default function AdminSurveys() {
 
       <main className="container py-8 space-y-6">
         <section>
-          <h1 className="text-3xl font-semibold text-foreground">
-            View Surveys
-          </h1>
+          <h1 className="text-3xl font-semibold text-foreground">View Surveys</h1>
           <p className="mt-1 text-muted-foreground">
             Filter:{" "}
             <span className="font-medium text-foreground">
               {kind === "all"
                 ? "All"
                 : kind === "sem_tr"
-                  ? "Semester + Teacher"
-                  : "General"}
+                ? "Semester + Teacher"
+                : "General"}
             </span>
             {" • "}Showing:{" "}
             <span className="font-medium text-foreground">
@@ -326,7 +364,7 @@ export default function AdminSurveys() {
               {filtered.map((s) => {
                 const isSemTr = !!s.semester_id && !!s.teacher_id;
                 const semesterName = s.semester_id
-                  ? (semesterNameById.get(s.semester_id) ?? s.semester_id)
+                  ? semesterNameById.get(s.semester_id) ?? s.semester_id
                   : null;
 
                 return (
@@ -378,6 +416,14 @@ export default function AdminSurveys() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
+                      {/* ✅ Publish button (ONLY publishing-related change) */}
+                      {!s.is_published && (
+                        <Button size="sm" onClick={() => handlePublish(s.id)}>
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          Publish
+                        </Button>
+                      )}
+
                       <Button asChild size="sm" variant="outline">
                         <Link to={`/admin/surveys/${s.id}/edit`}>
                           <Pencil className="mr-2 h-4 w-4" />
@@ -398,6 +444,13 @@ export default function AdminSurveys() {
                           Charts
                         </Link>
                       </Button>
+                      <Button
+  size="sm"
+  variant="destructive"
+  onClick={() => handleDelete(s.id)}
+>
+  Delete
+</Button>
                     </div>
                   </div>
                 );

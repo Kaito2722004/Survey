@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { FileText, CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import { Survey } from "@/types/survey";
+import { useRef } from "react";
 import { Header } from "@/components/layout/Header";
 
 type SurveyAccessRow = {
@@ -19,31 +20,26 @@ type SurveyAccessRow = {
 
 function canStudentAccessSurvey(
   survey: SurveyAccessRow,
-  studentSemesterId: string | null,
+  studentSemesterId: string | null
 ) {
-  // must be published
   if (!survey.is_published) return false;
 
   const isTeacherSurvey = !!survey.teacher_id;
 
-  // Teacher survey -> only students in that semester
   if (isTeacherSurvey) {
     if (!studentSemesterId) return false;
     return survey.semester_id === studentSemesterId;
   }
 
-  // General survey:
   const targeted = (survey.survey_semesters ?? [])
     .map((x) => x.semester_id)
     .filter(Boolean);
 
-  // Targeted general -> student must be in one of those semesters
   if (targeted.length > 0) {
     if (!studentSemesterId) return false;
     return targeted.includes(studentSemesterId);
   }
 
-  // School-wide general -> everyone can access (even if student has no semester)
   return true;
 }
 
@@ -61,6 +57,7 @@ export default function StudentSurveyTaker() {
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     const run = async () => {
@@ -69,7 +66,6 @@ export default function StudentSurveyTaker() {
       setIsLoadingSurvey(true);
       setIsAllowed(null);
 
-      // 1) student semester (optional now)
       const { data: semLink, error: semErr } = await supabase
         .from("semester_students")
         .select("semester_id")
@@ -86,12 +82,9 @@ export default function StudentSurveyTaker() {
 
       const studentSemesterId: string | null = semLink?.semester_id ?? null;
 
-      // 2) survey access row (include teacher_id + survey_semesters)
       const { data: surveyRow, error: sErr } = await supabase
         .from("surveys")
-        .select(
-          "is_published,semester_id,teacher_id,survey_semesters(semester_id)",
-        )
+        .select("is_published,semester_id,teacher_id,survey_semesters(semester_id)")
         .eq("id", id)
         .maybeSingle();
 
@@ -105,7 +98,7 @@ export default function StudentSurveyTaker() {
 
       const allowed = canStudentAccessSurvey(
         surveyRow as SurveyAccessRow,
-        studentSemesterId,
+        studentSemesterId
       );
       setIsAllowed(allowed);
 
@@ -115,22 +108,14 @@ export default function StudentSurveyTaker() {
         return;
       }
 
-      // 3) load full survey + questions
       const surveyData = await getSurveyPublic(id);
       setSurvey(surveyData);
 
-      // init answers
       if (surveyData) {
         const initial: Record<string, string | string[]> = {};
         surveyData.questions.forEach((q) => {
-          if (
-            q.type === ("checkboxes" as any) ||
-            q.type === ("checkbox" as any)
-          ) {
-            initial[q.id] = [];
-          } else {
-            initial[q.id] = "";
-          }
+          if (q.type === ("checkbox" as any)) initial[q.id] = [];
+          else initial[q.id] = "";
         });
         setAnswers(initial);
       }
@@ -143,6 +128,7 @@ export default function StudentSurveyTaker() {
 
   const handleAnswerChange = (questionId: string, value: string | string[]) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
+
     if (errors[questionId]) {
       setErrors((prev) => {
         const next = { ...prev };
@@ -172,25 +158,41 @@ export default function StudentSurveyTaker() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!id) return;
+ const handleSubmit = async () => {
+  if (!id) return;
+  if (submitLockRef.current) return; // ✅ hard lock (prevents double submit)
+  if (isSubmitted) return;
 
-    if (!validateAnswers()) {
-      toast.error("Please fill in all required fields");
+  if (!validateAnswers()) {
+    toast.error("Please fill in all required fields");
+    return;
+  }
+
+  submitLockRef.current = true;
+  setIsSubmitting(true);
+
+  try {
+    await submitResponse(id, answers);
+    setIsSubmitted(true);
+  } catch (err: unknown) {
+    const anyErr = err as any;
+    const code = anyErr?.code;
+    const msg = String(anyErr?.message ?? "").toLowerCase();
+
+    // ✅ duplicate = already submitted => treat as success
+    if (code === "23505" || msg.includes("duplicate key")) {
+      setIsSubmitted(true);
+      toast.success("You already submitted this survey.");
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      await submitResponse(id, answers);
-      setIsSubmitted(true);
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to submit response. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    console.error(err);
+    toast.error("Failed to submit response. Please try again.");
+  } finally {
+    setIsSubmitting(false);
+    submitLockRef.current = false;
+  }
+};
 
   if (isLoadingSurvey) {
     return (
@@ -275,7 +277,6 @@ export default function StudentSurveyTaker() {
     <div className="min-h-screen bg-background">
       <Header />
       <div className="container max-w-2xl py-8">
-        {/* Survey Header */}
         <div className="card-elevated mb-6 overflow-hidden">
           <div className="h-2 bg-gradient-to-r from-primary to-accent" />
           <div className="p-6">
@@ -299,7 +300,6 @@ export default function StudentSurveyTaker() {
           </div>
         </div>
 
-        {/* Questions */}
         <div className="space-y-4">
           {survey.questions.map((question, index) => (
             <div
@@ -308,10 +308,7 @@ export default function StudentSurveyTaker() {
             >
               <QuestionRenderer
                 question={question}
-                value={
-                  answers[question.id] ||
-                  (question.type === ("checkboxes" as any) ? [] : "")
-                }
+                value={answers[question.id] || (question.type === ("checkbox" as any) ? [] : "")}
                 onChange={(value) => handleAnswerChange(question.id, value)}
                 error={errors[question.id]}
               />
@@ -319,7 +316,6 @@ export default function StudentSurveyTaker() {
           ))}
         </div>
 
-        {/* Submit */}
         {survey.questions.length > 0 ? (
           <div className="mt-8 flex justify-end">
             <Button size="lg" onClick={handleSubmit} disabled={isSubmitting}>

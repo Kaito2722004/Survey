@@ -1,187 +1,145 @@
-import supabase from "@/utils/supabase";
+// src/services/charts.ts
+// Single source of truth for analytics helpers used by Sem+Teacher charts (SurveyAnalytics, RatingPieChart, CategoryRadarChart).
+// Also re-exports general-survey helpers from surveyAnalyticsService for AdminGeneralChart.
 
-/** Matches your chart UI format */
+export {
+  fetchSurveyQuestions,
+  fetchSurveyResponses,
+  buildChartRow,
+  countOptionsForQuestion,
+  getOptions,
+  isOptionQuestion,
+  type DbQuestion,
+  type DbSurveyResponse,
+  type ChartRow,
+} from "@/services/surveyAnalyticsService";
+
+// -----------------------------
+// Types used by Sem+Teacher analytics UI
+// -----------------------------
+export type AnalyticsRatingRow = {
+  questionId: string;
+  question: string;
+  rating: number;   // can be float; we bucket safely
+  category: string; // can be missing; we normalize/guess
+};
+
 export type AnalyticsSurveyResponse = {
-  id: string;
+  id: string; // response id
   teacherId: string;
   teacherName: string;
   subject: string;
-  responses: {
-    questionId: string;
-    question: string;
-    rating: number; // 1–5
-    category: "teaching" | "communication" | "knowledge" | "support" | "overall";
-  }[];
   submittedAt: string;
+  responses: AnalyticsRatingRow[];
 };
 
-type DbSurvey = { id: string; teacher_id: string | null };
-type DbTeacher = { id: string; name: string | null; email: string | null };
-type DbQuestion = {
-  id: string;
-  title: string;
-  type: string;
-  options: string[] | null; // your DB uses text[]
-  category: string | null;  // if you ran the SQL migration
-  order_index: number | null;
-};
-type DbSurveyResponse = {
-  id: string;
-  survey_id: string;
-  answers: Record<string, unknown> | null;
-  submitted_at: string;
+// Output type expected by RatingPieChart
+export type RatingDistributionRow = {
+  rating: string;
+  value: number;
+  numericRating: number;
 };
 
-/** If DB category missing, fallback guess based on title */
-function guessCategory(title: string): AnalyticsSurveyResponse["responses"][number]["category"] {
-  const t = title.toLowerCase();
-  if (t.includes("clarity") || t.includes("explain") || t.includes("teaching") || t.includes("engage")) return "teaching";
-  if (t.includes("respond") || t.includes("question") || t.includes("feedback") || t.includes("communicat")) return "communication";
-  if (t.includes("expert") || t.includes("knowledge") || t.includes("material") || t.includes("subject")) return "knowledge";
-  if (t.includes("help") || t.includes("available") || t.includes("support")) return "support";
+// Output type expected by CategoryRadarChart
+export type CategoryAverageRow = {
+  category: string;
+  average: number;
+};
+
+// -----------------------------
+// Safe helpers
+// -----------------------------
+function normalizeRating(val: unknown): number | null {
+  if (val === null || val === undefined) return null;
+
+  const n =
+    typeof val === "number"
+      ? val
+      : typeof val === "string"
+      ? Number(val.trim())
+      : NaN;
+
+  if (!Number.isFinite(n)) return null;
+
+  const r = Math.round(n);
+  if (r < 1 || r > 5) return null;
+  return r;
+}
+
+type Bucket = "teaching" | "communication" | "knowledge" | "support" | "overall";
+
+function normalizeCategory(raw?: unknown): Bucket {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (!s) return "overall";
+
+  if (s.includes("teach") || s.includes("delivery") || s.includes("clarity") || s.includes("explain")) return "teaching";
+  if (s.includes("communicat") || s.includes("feedback") || s.includes("respond") || s.includes("interaction")) return "communication";
+  if (s.includes("know") || s.includes("expert") || s.includes("subject") || s.includes("content") || s.includes("material")) return "knowledge";
+  if (s.includes("support") || s.includes("help") || s.includes("available") || s.includes("assist") || s.includes("guidance")) return "support";
+  if (s.includes("overall") || s.includes("general")) return "overall";
+
   return "overall";
 }
 
-/**
- * Convert DB answer value into rating number 1–5.
- * Works with:
- * - numbers: 4
- * - numeric strings: "4"
- * - option ids: "opt-3" -> options[3] -> "4" -> 4
- */
-function parseRatingFromAnswer(value: unknown, questionOptions?: string[] | null): number | null {
-  if (value == null) return null;
-  if (Array.isArray(value)) return null; // ignore checkbox arrays for rating charts
+function guessCategoryFromTitle(title: string): Bucket {
+  const t = title.toLowerCase();
 
-  if (typeof value === "number") {
-    const n = Math.round(value);
-    return n >= 1 && n <= 5 ? n : null;
-  }
+  if (
+    t.includes("teach") ||
+    t.includes("explain") ||
+    t.includes("clarity") ||
+    t.includes("understand") ||
+    t.includes("engage") ||
+    t.includes("delivery") ||
+    t.includes("pace")
+  ) return "teaching";
 
-  if (typeof value === "string") {
-    const trimmed = value.trim();
+  if (
+    t.includes("communicat") ||
+    t.includes("respond") ||
+    t.includes("feedback") ||
+    t.includes("question") ||
+    t.includes("interaction") ||
+    t.includes("discussion")
+  ) return "communication";
 
-    // direct number string
-    const direct = Number(trimmed);
-    if (Number.isFinite(direct)) {
-      const n = Math.round(direct);
-      return n >= 1 && n <= 5 ? n : null;
-    }
+  if (
+    t.includes("knowledge") ||
+    t.includes("expert") ||
+    t.includes("material") ||
+    t.includes("content") ||
+    t.includes("subject") ||
+    t.includes("concept")
+  ) return "knowledge";
 
-    // "opt-3"
-    const m = /^opt-(\d+)$/.exec(trimmed);
-    if (m && questionOptions) {
-      const idx = Number(m[1]);
-      const optText = questionOptions[idx];
-      if (!optText) return null;
+  if (
+    t.includes("support") ||
+    t.includes("help") ||
+    t.includes("available") ||
+    t.includes("assist") ||
+    t.includes("guidance")
+  ) return "support";
 
-      const digit = String(optText).match(/[1-5]/)?.[0];
-if (!digit) return null;
-
-const n = Number(digit);
-return n >= 1 && n <= 5 ? n : null;
-      return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
-    }
-  }
-
-  return null;
+  return "overall";
 }
 
-/** MAIN: fetch real chart data for a surveyId */
-export async function getSurveyAnalyticsData(surveyId: string): Promise<AnalyticsSurveyResponse[]> {
-  // 1) survey -> teacher_id
-  const { data: survey, error: sErr } = await supabase
-    .from("surveys")
-    .select("id, teacher_id")
-    .eq("id", surveyId)
-    .single<DbSurvey>();
-
-  if (sErr) throw new Error(sErr.message);
-
-  // 2) teacher info (optional)
-  const teacherId = survey.teacher_id ?? "unknown";
-  let teacherName = "Unknown Teacher";
-
-  if (survey.teacher_id) {
-    const { data: teacher } = await supabase
-      .from("teachers")
-      .select("id, name, email")
-      .eq("id", survey.teacher_id)
-      .single<DbTeacher>();
-
-    if (teacher) teacherName = teacher.name ?? teacher.email ?? teacherName;
-  }
-
-  // subject not in your schema, keep placeholder
-  const subject = "N/A";
-
-  // 3) questions
-  const { data: questions, error: qErr } = await supabase
-    .from("questions")
-    .select("id, title, type, options, category, order_index")
-    .eq("survey_id", surveyId)
-    .order("order_index", { ascending: true })
-    .returns<DbQuestion[]>();
-
-  if (qErr) throw new Error(qErr.message);
-
-  // 4) responses
-  const { data: rows, error: rErr } = await supabase
-    .from("survey_responses")
-    .select("id, survey_id, answers, submitted_at")
-    .eq("survey_id", surveyId)
-    .order("submitted_at", { ascending: false })
-    .returns<DbSurveyResponse[]>();
-
-  if (rErr) throw new Error(rErr.message);
-
-  // 5) convert rows -> chart format
-  const result: AnalyticsSurveyResponse[] = (rows ?? [])
-    .map((row) => {
-      const answers = row.answers ?? {};
-
-      const responses =
-        (questions ?? [])
-          .map((q) => {
-            const rating = parseRatingFromAnswer(answers[q.id], q.options);
-            if (rating == null) return null;
-
-            const category =
-              (q.category as AnalyticsSurveyResponse["responses"][number]["category"] | null) ??
-              guessCategory(q.title);
-
-            return {
-              questionId: q.id,
-              question: q.title,
-              rating,
-              category,
-            };
-          })
-          .filter(Boolean) as AnalyticsSurveyResponse["responses"];
-
-      return {
-        id: row.id,
-        teacherId,
-        teacherName,
-        subject,
-        responses,
-        submittedAt: row.submitted_at,
-      };
-    })
-    .filter((r) => r.responses.length > 0);
-
-  return result;
+function labelCategory(bucket: Bucket): string {
+  return bucket.charAt(0).toUpperCase() + bucket.slice(1);
 }
 
-/* helpers for charts */
-export function getRatingDistribution(data: AnalyticsSurveyResponse[]) {
+// -----------------------------
+// Public analytics helpers used by SurveyAnalytics.tsx
+// -----------------------------
+export function getRatingDistribution(data: AnalyticsSurveyResponse[]): RatingDistributionRow[] {
   const dist: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
-  data.forEach((row) => {
-    row.responses.forEach((r) => {
-      dist[r.rating as 1 | 2 | 3 | 4 | 5] += 1;
-    });
-  });
+  for (const row of data) {
+    for (const r of row.responses) {
+      const rr = normalizeRating(r.rating);
+      if (!rr) continue;
+      dist[rr] += 1;
+    }
+  }
 
   return Object.entries(dist).map(([rating, count]) => ({
     rating: `${rating} Star${rating !== "1" ? "s" : ""}`,
@@ -190,19 +148,35 @@ export function getRatingDistribution(data: AnalyticsSurveyResponse[]) {
   }));
 }
 
-export function getCategoryAverages(data: AnalyticsSurveyResponse[]) {
-  const totals: Record<string, { sum: number; count: number }> = {};
+export function getCategoryAverages(data: AnalyticsSurveyResponse[]): CategoryAverageRow[] {
+  const totals: Record<Bucket, { sum: number; count: number }> = {
+    teaching: { sum: 0, count: 0 },
+    communication: { sum: 0, count: 0 },
+    knowledge: { sum: 0, count: 0 },
+    support: { sum: 0, count: 0 },
+    overall: { sum: 0, count: 0 },
+  };
 
-  data.forEach((row) => {
-    row.responses.forEach((r) => {
-      if (!totals[r.category]) totals[r.category] = { sum: 0, count: 0 };
-      totals[r.category].sum += r.rating;
-      totals[r.category].count += 1;
-    });
-  });
+  for (const row of data) {
+    for (const r of row.responses) {
+      const rr = normalizeRating(r.rating);
+      if (!rr) continue;
 
-  return Object.entries(totals).map(([category, v]) => ({
-    category: category.charAt(0).toUpperCase() + category.slice(1),
-    average: Math.round((v.sum / v.count) * 100) / 100,
-  }));
+      const bucket =
+        r.category && String(r.category).trim()
+          ? normalizeCategory(r.category)
+          : guessCategoryFromTitle(r.question);
+
+      totals[bucket].sum += rr;
+      totals[bucket].count += 1;
+    }
+  }
+
+  return (Object.entries(totals) as [Bucket, { sum: number; count: number }][])
+    .filter(([, v]) => v.count > 0)
+    .map(([bucket, v]) => ({
+      category: labelCategory(bucket),
+      average: Math.round((v.sum / v.count) * 100) / 100,
+    }))
+    .sort((a, b) => b.average - a.average);
 }

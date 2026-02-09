@@ -108,7 +108,7 @@ export default function AdminCreateSurvey() {
 
   const toggleGeneralSemester = (id: string) => {
     setGeneralSemesterIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
@@ -129,7 +129,7 @@ export default function AdminCreateSurvey() {
           title.trim(),
           description.trim(),
           selectedSemesterId,
-          selectedTeacherId,
+          selectedTeacherId
         );
         if (!survey) throw new Error("Survey create returned null");
 
@@ -141,12 +141,7 @@ export default function AdminCreateSurvey() {
       // ✅ General Survey:
       // - always store surveys.semester_id = null and surveys.teacher_id = null
       // - if limitToSemesters + selected semesters => insert into survey_semesters
-      const survey = await createSurvey(
-        title.trim(),
-        description.trim(),
-        null,
-        null,
-      );
+      const survey = await createSurvey(title.trim(), description.trim(), null, null);
       if (!survey) throw new Error("Survey create returned null");
 
       // Optional targeting: sem 1–5 (multi semesters)
@@ -156,14 +151,13 @@ export default function AdminCreateSurvey() {
           survey_id: survey.id,
           semester_id,
         }));
-
-        const { error } = await supabase.from("survey_semesters").insert(rows);
+const { error } = await (supabase as any).from("survey_semesters").insert(rows);
 
         // If table doesn't exist, this will error — show a clear message
         if (error) {
           console.error(error);
           toast.error(
-            "Targeting semesters failed. Create table 'survey_semesters' (SQL I sent) or disable semester targeting.",
+            "Targeting semesters failed. Create table 'survey_semesters' (SQL I sent) or disable semester targeting."
           );
           // still let them proceed to add questions
         }
@@ -261,9 +255,7 @@ export default function AdminCreateSurvey() {
                   disabled={!selectedSemesterId}
                 >
                   <option value="">
-                    {selectedSemesterId
-                      ? "-- Select teacher --"
-                      : "Select semester first"}
+                    {selectedSemesterId ? "-- Select teacher --" : "Select semester first"}
                   </option>
                   {teachers.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -274,8 +266,7 @@ export default function AdminCreateSurvey() {
 
                 {selectedSemesterId && teachers.length === 0 && (
                   <div className="text-sm text-muted-foreground">
-                    No teachers assigned to this semester yet. Go to “Semester →
-                    Teachers”.
+                    No teachers assigned to this semester yet. Go to “Semester → Teachers”.
                   </div>
                 )}
               </div>

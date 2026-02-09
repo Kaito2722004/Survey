@@ -23,14 +23,10 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
 
   const [semester, setSemester] = useState<SemesterRow | null>(null);
-  const [studentSemesterId, setStudentSemesterId] = useState<string | null>(
-    null,
-  );
+  const [studentSemesterId, setStudentSemesterId] = useState<string | null>(null);
 
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
-  const [teacherMap, setTeacherMap] = useState<Map<string, TeacherRow>>(
-    new Map(),
-  );
+  const [teacherMap, setTeacherMap] = useState<Map<string, TeacherRow>>(new Map());
 
   useEffect(() => {
     if (!user) return;
@@ -70,9 +66,7 @@ export default function StudentDashboard() {
       // 3) Load all published surveys + targeted mapping
       const { data: all, error: allErr } = await supabase
         .from("surveys")
-        .select(
-          "id,title,description,created_at,semester_id,teacher_id,survey_semesters(semester_id)",
-        )
+        .select("id,title,description,created_at,semester_id,teacher_id,survey_semesters(semester_id)")
         .eq("is_published", true)
         .order("created_at", { ascending: false });
 
@@ -117,7 +111,7 @@ export default function StudentDashboard() {
 
       // 5) Load teacher names for teacher surveys
       const teacherIds = Array.from(
-        new Set(visible.map((s) => s.teacher_id).filter(Boolean) as string[]),
+        new Set(visible.map((s) => s.teacher_id).filter(Boolean) as string[])
       );
 
       if (teacherIds.length > 0) {
@@ -150,12 +144,10 @@ export default function StudentDashboard() {
       const badge = s.teacher_id
         ? "Teacher Survey"
         : restricted.length > 0
-          ? "General (Targeted)"
-          : "General (School-wide)";
+        ? "General (Targeted)"
+        : "General (School-wide)";
 
-      const subLabel = s.teacher_id
-        ? t?.name || t?.email || "Teacher"
-        : "General";
+      const subLabel = s.teacher_id ? (t?.name || t?.email || "Teacher") : "General";
 
       return { ...s, badge, subLabel };
     });
@@ -170,8 +162,7 @@ export default function StudentDashboard() {
             Student Dashboard
           </h1>
           <p className="mt-1 text-muted-foreground">
-            You can answer school-wide surveys, targeted general surveys, and
-            surveys from your semester.
+            You can answer school-wide surveys, targeted general surveys, and surveys from your semester.
           </p>
         </div>
 
@@ -184,9 +175,7 @@ export default function StudentDashboard() {
               </div>
               {!semester && (
                 <div className="mt-1 text-sm text-muted-foreground">
-                  You will only see{" "}
-                  <span className="font-medium">school-wide</span> general
-                  surveys.
+                  You will only see <span className="font-medium">school-wide</span> general surveys.
                 </div>
               )}
             </div>
@@ -205,26 +194,20 @@ export default function StudentDashboard() {
           </div>
 
           {!loading && cards.length === 0 && (
-            <div className="text-sm text-muted-foreground">
-              No surveys available right now.
-            </div>
+            <div className="text-sm text-muted-foreground">No surveys available right now.</div>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
             {cards.map((s) => (
               <div key={s.id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm text-muted-foreground">
-                    {s.subLabel}
-                  </div>
+                  <div className="text-sm text-muted-foreground">{s.subLabel}</div>
                   <span className="text-xs rounded-full border border-border px-2 py-0.5 text-muted-foreground">
                     {s.badge}
                   </span>
                 </div>
 
-                <div className="mt-1 text-lg font-semibold text-foreground">
-                  {s.title}
-                </div>
+                <div className="mt-1 text-lg font-semibold text-foreground">{s.title}</div>
 
                 {s.description && (
                   <div className="mt-2 text-sm text-muted-foreground">

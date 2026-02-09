@@ -18,8 +18,12 @@ import AdminStudentsSemester from "./pages/admin/AdminStudentsSemester";
 import AdminCreateSurvey from "./pages/admin/AdminCreateSurvey";
 import AdminSurveyResponses from "./pages/admin/AdminSurveyResponses";
 import AdminSurveys from "./pages/admin/AdminSurveys";
-import AdminChart from "./pages/admin/AdminChart";
 import SurveyEditor from "./pages/admin/SurveyEditor";
+
+
+// ✅ charts-related
+import AdminSurveyAnalytics from "./pages/admin/AdminSurveyAnalytics";
+import AdminGeneralChart from "@/components/charts/AdminGeneralChart";
 
 // Student pages
 import StudentDashboard from "./pages/student/StudentDashboard";
@@ -89,7 +93,26 @@ const AppRoutes = () => (
     <Route path="/admin/surveys" element={<AdminRoute><AdminSurveys /></AdminRoute>} />
     <Route path="/admin/surveys/:surveyId/edit" element={<AdminRoute><SurveyEditor /></AdminRoute>} />
     <Route path="/admin/surveys/:surveyId/responses" element={<AdminRoute><AdminSurveyResponses /></AdminRoute>} />
-    <Route path="/admin/surveys/:surveyId/analytics" element={<AdminRoute><AdminChart /></AdminRoute>} />
+
+    {/* ✅ ONE route for analytics (it decides Sem+Teacher vs General) */}
+    <Route
+      path="/admin/surveys/:surveyId/analytics"
+      element={
+        <AdminRoute>
+          <AdminSurveyAnalytics />
+        </AdminRoute>
+      }
+    />
+
+    {/* (Optional) keep this if you still want direct access to the general chart page */}
+    <Route
+      path="/admin/surveys/:surveyId/general-chart"
+      element={
+        <AdminRoute>
+          <AdminGeneralChart />
+        </AdminRoute>
+      }
+    />
 
     {/* Student */}
     <Route path="/student" element={<StudentRoute><StudentDashboard /></StudentRoute>} />
@@ -107,6 +130,7 @@ const AppRoutes = () => (
 
     <Route path="*" element={<NotFound />} />
   </Routes>
+  
 );
 
 const App = () => (
