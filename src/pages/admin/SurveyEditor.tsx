@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -29,22 +29,62 @@ import {
 import { useSurvey } from "@/contexts/SurveyContext";
 import { QuestionEditor } from "@/components/survey/QuestionEditor";
 import { Question, QuestionType } from "@/types/survey";
+import { useDebounce } from "@/hooks/useDebounce";
 
-const questionTypes: { value: QuestionType; label: string; icon: JSX.Element }[] = [
-  { value: "short_answer", label: "Short Answer", icon: <Type className="h-4 w-4" /> },
-  { value: "paragraph", label: "Paragraph", icon: <AlignLeft className="h-4 w-4" /> },
-  { value: "multiple_choice", label: "Multiple Choice", icon: <CircleDot className="h-4 w-4" /> },
-  { value: "checkboxes", label: "Checkboxes", icon: <CheckSquare className="h-4 w-4" /> },
-  { value: "dropdown", label: "Dropdown", icon: <ChevronDown className="h-4 w-4" /> },
+const questionTypes: {
+  value: QuestionType;
+  label: string;
+  icon: JSX.Element;
+}[] = [
+  {
+    value: "short_answer",
+    label: "Short Answer",
+    icon: <Type className="h-4 w-4" />,
+  },
+  {
+    value: "paragraph",
+    label: "Paragraph",
+    icon: <AlignLeft className="h-4 w-4" />,
+  },
+  {
+    value: "multiple_choice",
+    label: "Multiple Choice",
+    icon: <CircleDot className="h-4 w-4" />,
+  },
+  {
+    value: "checkboxes",
+    label: "Checkboxes",
+    icon: <CheckSquare className="h-4 w-4" />,
+  },
+  {
+    value: "dropdown",
+    label: "Dropdown",
+    icon: <ChevronDown className="h-4 w-4" />,
+  },
 ];
 
-const HAS_OPTIONS = new Set<QuestionType>(["multiple_choice", "checkboxes", "dropdown"]);
+const HAS_OPTIONS = new Set<QuestionType>([
+  "multiple_choice",
+  "checkboxes",
+  "dropdown",
+]);
 
 export default function SurveyEditor() {
-  const params = useParams<{ surveyId?: string; id?: string; survey_id?: string }>();
+  const params = useParams<{
+    surveyId?: string;
+    id?: string;
+    survey_id?: string;
+  }>();
   const navigate = useNavigate();
 
-  const { getSurvey, updateSurvey, addQuestion, updateQuestion, deleteQuestion, isLoading } = useSurvey();
+  const {
+    getSurvey,
+    updateSurvey,
+    addQuestion,
+    updateQuestion,
+    deleteQuestion,
+    isLoading,
+  } = useSurvey();
 
   const surveyId = params.surveyId || params.id || params.survey_id || "";
   const survey = surveyId ? getSurvey(surveyId) : null;
@@ -52,37 +92,62 @@ export default function SurveyEditor() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
+  const hasCheckedSurvey = useRef(false);
+  const initializedSurveyId = useRef<string>("");
+
+  // ✅ Debounced save functions - only save, not state updates
+  const debouncedSaveTitle = useDebounce(async (newTitle: string) => {
+    if (surveyId) {
+      await updateSurvey(surveyId, { title: newTitle });
+    }
+  }, 500);
+
+  const debouncedSaveDescription = useDebounce(
+    async (newDescription: string) => {
+      if (surveyId) {
+        await updateSurvey(surveyId, { description: newDescription });
+      }
+    },
+    500,
+  );
+
   useEffect(() => {
     if (!surveyId) {
       toast.error("Missing survey id");
       navigate("/admin/surveys");
     }
-  }, [surveyId, navigate]);
+  }, []);
 
+  // ✅ FIXED: Only initialize state once when survey loads or changes
   useEffect(() => {
-    if (survey) {
+    if (survey && survey.id !== initializedSurveyId.current) {
       setTitle(survey.title ?? "");
       setDescription(survey.description ?? "");
+      initializedSurveyId.current = survey.id;
     }
-  }, [survey]);
+  }, [survey?.id]); // Only run when survey ID changes
 
   useEffect(() => {
-    if (!isLoading && surveyId && !survey) {
-      toast.error("Survey not found");
-      navigate("/admin/surveys");
+    if (!isLoading && surveyId) {
+      if (!survey && !hasCheckedSurvey.current) {
+        hasCheckedSurvey.current = true;
+        toast.error("Survey not found");
+        navigate("/admin/surveys");
+      } else if (survey) {
+        hasCheckedSurvey.current = true;
+      }
     }
-  }, [isLoading, surveyId, survey, navigate]);
+  }, [isLoading, surveyId, survey?.id, navigate]);
 
-  const handleTitleChange = async (newTitle: string) => {
+  // ✅ Simple handlers - update UI immediately, save is debounced
+  const handleTitleChange = (newTitle: string) => {
     setTitle(newTitle);
-    if (!surveyId) return;
-    await updateSurvey(surveyId, { title: newTitle });
+    debouncedSaveTitle(newTitle);
   };
 
-  const handleDescriptionChange = async (newDescription: string) => {
+  const handleDescriptionChange = (newDescription: string) => {
     setDescription(newDescription);
-    if (!surveyId) return;
-    await updateSurvey(surveyId, { description: newDescription });
+    debouncedSaveDescription(newDescription);
   };
 
   const handleAddQuestion = async (type: QuestionType) => {
@@ -104,7 +169,6 @@ export default function SurveyEditor() {
     await addQuestion(surveyId, newQuestion);
   };
 
-  // ✅ Rating question for charts (1–5)
   const handleAddRatingQuestion = async () => {
     if (!surveyId) return;
 
@@ -113,7 +177,10 @@ export default function SurveyEditor() {
       type: "multiple_choice",
       title: "Overall teaching effectiveness",
       required: true,
-      options: ["1", "2", "3", "4", "5"].map((t, i) => ({ id: `opt-${i}`, text: t })),
+      options: ["1", "2", "3", "4", "5"].map((t, i) => ({
+        id: `opt-${i}`,
+        text: t,
+      })),
     };
 
     await addQuestion(surveyId, ratingQuestion);
@@ -132,7 +199,7 @@ export default function SurveyEditor() {
     window.open("/survey/" + surveyId, "_blank");
   };
 
-  if (isLoading) {
+  if (isLoading && !hasCheckedSurvey.current) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
@@ -143,12 +210,12 @@ export default function SurveyEditor() {
     );
   }
 
-  if (!survey) {
+  if (!survey && hasCheckedSurvey.current) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
         <main className="container py-16">
-          <div className="text-sm text-muted-foreground">Loading survey...</div>
+          <div className="text-sm text-muted-foreground">Survey not found</div>
         </main>
       </div>
     );
@@ -160,7 +227,11 @@ export default function SurveyEditor() {
 
       <div className="sticky top-16 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
         <div className="container flex h-14 items-center justify-between gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/admin/surveys")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/admin/surveys")}
+          >
             <ArrowLeft className="mr-1 h-4 w-4" />
             Surveys
           </Button>
@@ -176,7 +247,11 @@ export default function SurveyEditor() {
               Preview
             </Button>
 
-            <Button variant="secondary" size="sm" onClick={handleAddRatingQuestion}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleAddRatingQuestion}
+            >
               <Star className="mr-2 h-4 w-4" />
               Add Rating (1–5)
             </Button>
@@ -209,33 +284,46 @@ export default function SurveyEditor() {
       <main className="container py-8 space-y-8">
         <div className="card-elevated p-6 space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Survey title</label>
-            <Input value={title} onChange={(e) => handleTitleChange(e.target.value)} />
+            <label className="text-sm font-medium text-foreground">
+              Survey title
+            </label>
+            <Input
+              value={title}
+              onChange={(e) => handleTitleChange(e.target.value)}
+            />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Description (optional)</label>
-            <Textarea value={description} onChange={(e) => handleDescriptionChange(e.target.value)} rows={3} />
+            <label className="text-sm font-medium text-foreground">
+              Description (optional)
+            </label>
+            <Textarea
+              value={description}
+              onChange={(e) => handleDescriptionChange(e.target.value)}
+              rows={3}
+            />
           </div>
         </div>
 
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">Questions</h2>
 
-          {survey.questions?.length ? (
+          {survey?.questions?.length ? (
             <div className="space-y-4">
               {survey.questions.map((q: Question) => (
                 <QuestionEditor
                   key={q.id}
                   question={q}
-                  onUpdate={(updates) => updateQuestion(surveyId, q.id, updates)}
+                  onUpdate={(updates) =>
+                    updateQuestion(surveyId, q.id, updates)
+                  }
                   onDelete={() => deleteQuestion(surveyId, q.id)}
                 />
               ))}
             </div>
           ) : (
             <div className="card-elevated p-6 text-sm text-muted-foreground">
-              No questions yet. Click “Add Question”.
+              No questions yet. Click "Add Question".
             </div>
           )}
         </div>
