@@ -349,10 +349,16 @@ const { error } = await (supabase as any).from("survey_semesters").insert(rows);
             <Button onClick={handleCreate} disabled={creating}>
               {creating ? "Creating..." : "Create & Add Questions"}
             </Button>
-            <Button variant="outline" onClick={() => navigate("/admin/semester-teachers")}>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/admin/semester-teachers")}
+            >
               Manage Semester Teachers
             </Button>
-            <Button variant="outline" onClick={() => navigate("/admin/students-semester")}>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/admin/students-semester")}
+            >
               Manage Students Semester
             </Button>
           </div>

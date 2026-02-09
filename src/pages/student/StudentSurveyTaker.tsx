@@ -149,7 +149,8 @@ export default function StudentSurveyTaker() {
       if (Array.isArray(ans)) {
         if (ans.length === 0) newErrors[q.id] = "This question is required";
       } else {
-        if (!ans || ans.trim() === "") newErrors[q.id] = "This question is required";
+        if (!ans || ans.trim() === "")
+          newErrors[q.id] = "This question is required";
       }
     });
 
@@ -212,7 +213,9 @@ export default function StudentSurveyTaker() {
                 <ShieldAlert className="h-8 w-8 text-destructive" />
               </div>
             </div>
-            <h1 className="text-xl font-semibold text-foreground">Not allowed</h1>
+            <h1 className="text-xl font-semibold text-foreground">
+              Not allowed
+            </h1>
             <p className="mt-2 text-muted-foreground">
               This survey is not for you (or it is not published).
             </p>
@@ -233,7 +236,9 @@ export default function StudentSurveyTaker() {
                 <FileText className="h-8 w-8 text-muted-foreground" />
               </div>
             </div>
-            <h1 className="mb-2 text-xl font-semibold text-foreground">Survey Not Found</h1>
+            <h1 className="mb-2 text-xl font-semibold text-foreground">
+              Survey Not Found
+            </h1>
             <p className="text-muted-foreground">
               This survey doesn't exist or has been deleted.
             </p>
@@ -255,8 +260,12 @@ export default function StudentSurveyTaker() {
                   <CheckCircle2 className="h-8 w-8 text-success" />
                 </div>
               </div>
-              <h1 className="mb-2 text-2xl font-semibold text-foreground">Thank You!</h1>
-              <p className="text-muted-foreground">Your response has been recorded successfully.</p>
+              <h1 className="mb-2 text-2xl font-semibold text-foreground">
+                Thank You!
+              </h1>
+              <p className="text-muted-foreground">
+                Your response has been recorded successfully.
+              </p>
             </div>
           </div>
         </div>
@@ -275,10 +284,16 @@ export default function StudentSurveyTaker() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <FileText className="h-4 w-4 text-primary-foreground" />
               </div>
-              <span className="text-sm font-medium text-muted-foreground">FormFlow</span>
+              <span className="text-sm font-medium text-muted-foreground">
+                FormFlow
+              </span>
             </div>
-            <h1 className="text-2xl font-semibold text-foreground">{survey.title}</h1>
-            {survey.description && <p className="mt-2 text-muted-foreground">{survey.description}</p>}
+            <h1 className="text-2xl font-semibold text-foreground">
+              {survey.title}
+            </h1>
+            {survey.description && (
+              <p className="mt-2 text-muted-foreground">{survey.description}</p>
+            )}
             <p className="mt-4 text-sm text-muted-foreground">
               <span className="text-destructive">*</span> Required
             </p>
@@ -287,7 +302,10 @@ export default function StudentSurveyTaker() {
 
         <div className="space-y-4">
           {survey.questions.map((question, index) => (
-            <div key={question.id} style={{ animationDelay: `${index * 100}ms` }}>
+            <div
+              key={question.id}
+              style={{ animationDelay: `${index * 100}ms` }}
+            >
               <QuestionRenderer
                 question={question}
                 value={answers[question.id] || (question.type === ("checkbox" as any) ? [] : "")}
@@ -313,7 +331,9 @@ export default function StudentSurveyTaker() {
           </div>
         ) : (
           <div className="card-elevated p-8 text-center mt-6">
-            <p className="text-muted-foreground">This survey has no questions yet.</p>
+            <p className="text-muted-foreground">
+              This survey has no questions yet.
+            </p>
           </div>
         )}
       </div>

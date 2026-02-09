@@ -158,7 +158,9 @@ export default function StudentDashboard() {
       <Header />
       <main className="container py-8 space-y-6">
         <div>
-          <h1 className="text-3xl font-semibold text-foreground">Student Dashboard</h1>
+          <h1 className="text-3xl font-semibold text-foreground">
+            Student Dashboard
+          </h1>
           <p className="mt-1 text-muted-foreground">
             You can answer school-wide surveys, targeted general surveys, and surveys from your semester.
           </p>
@@ -186,7 +188,9 @@ export default function StudentDashboard() {
         <div className="card-elevated p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Available Surveys</h2>
-            {loading && <span className="text-sm text-muted-foreground">Loading...</span>}
+            {loading && (
+              <span className="text-sm text-muted-foreground">Loading...</span>
+            )}
           </div>
 
           {!loading && cards.length === 0 && (
@@ -206,7 +210,9 @@ export default function StudentDashboard() {
                 <div className="mt-1 text-lg font-semibold text-foreground">{s.title}</div>
 
                 {s.description && (
-                  <div className="mt-2 text-sm text-muted-foreground">{s.description}</div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    {s.description}
+                  </div>
                 )}
 
                 <div className="mt-4">
