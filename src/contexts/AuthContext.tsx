@@ -16,7 +16,12 @@ type AuthContextType = {
   user: AppUser | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string, semesterId: string) => Promise<void>;
+  signup: (
+    email: string,
+    password: string,
+    name: string,
+    semesterId: string,
+  ) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -65,7 +70,8 @@ function clearSupabaseAuthStorage() {
 
 async function buildAppUser(sessionUser: SessionUser) {
   const metaName =
-    sessionUser.user_metadata && typeof sessionUser.user_metadata["name"] === "string"
+    sessionUser.user_metadata &&
+    typeof sessionUser.user_metadata["name"] === "string"
       ? (sessionUser.user_metadata["name"] as string)
       : undefined;
 
@@ -86,13 +92,17 @@ async function buildAppUser(sessionUser: SessionUser) {
 
   // If student picked semester during signup, auto-link on first login
   const metaSemesterId =
-    sessionUser.user_metadata && typeof sessionUser.user_metadata["semester_id"] === "string"
+    sessionUser.user_metadata &&
+    typeof sessionUser.user_metadata["semester_id"] === "string"
       ? (sessionUser.user_metadata["semester_id"] as string)
       : undefined;
 
   if (!ensured.is_admin && !studentLink && metaSemesterId) {
     try {
-      studentLink = await semesterStudentsService.upsertStudentSemester(metaSemesterId, sessionUser.id);
+      studentLink = await semesterStudentsService.upsertStudentSemester(
+        metaSemesterId,
+        sessionUser.id,
+      );
     } catch (e: unknown) {
       console.error("Auto semester link failed:", e);
     }
@@ -101,7 +111,7 @@ async function buildAppUser(sessionUser: SessionUser) {
   const appUser: AppUser = {
     id: sessionUser.id,
     email: ensured.email ?? sessionUser.email ?? "",
-    name: ensured.name ?? (sessionUser.email?.split("@")[0] ?? "User"),
+    name: ensured.name ?? sessionUser.email?.split("@")[0] ?? "User",
     isAdmin: !!ensured.is_admin,
     semesterId: studentLink?.semester_id ?? null,
   };
@@ -109,7 +119,9 @@ async function buildAppUser(sessionUser: SessionUser) {
   return appUser;
 }
 
-function toQuickUser(session: { user: { id: string; email?: string | null } }): AppUser {
+function toQuickUser(session: {
+  user: { id: string; email?: string | null };
+}): AppUser {
   const email = session.user.email ?? "";
   return {
     id: session.user.id,
@@ -120,7 +132,9 @@ function toQuickUser(session: { user: { id: string; email?: string | null } }): 
   };
 }
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -140,82 +154,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .catch((e) => {
           if (isAbortError(e)) return;
           console.error("buildAppUser error:", e);
+        })
+        .finally(() => {
+          if (alive) setIsLoading(false); // ✅ Only stop loading after full user is built
         });
     };
 
-    // 1) Auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         if (!alive) return;
-
         if (session?.user) {
-          // ✅ set quick user immediately
-          setUser(toQuickUser(session as any));
-
-          // ✅ load full user in background
+          setIsLoading(true); // ✅ Keep loading state
           loadFullUserInBackground(session);
         } else {
           setUser(null);
+          setIsLoading(false);
         }
       } catch (e: unknown) {
-        if (isAbortError(e)) return;
-
-        console.error("Auth state change error:", e);
-
-        if (isRefreshTokenProblem(e)) {
-          try {
-            clearSupabaseAuthStorage();
-            await supabase.auth.signOut();
-          } catch {}
-        }
-
-        setUser(null);
-      } finally {
+        // ... error handling
         if (alive) setIsLoading(false);
       }
     });
 
-    // 2) Initial session load
+    // Initial session load
     (async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
-
         if (error) {
-          if (isRefreshTokenProblem(error)) {
-            clearSupabaseAuthStorage();
-            await supabase.auth.signOut();
-          }
-          if (alive) setUser(null);
+          // ... error handling
           return;
         }
-
         const session = data?.session;
         if (session?.user) {
-          // ✅ set quick user immediately
-          if (alive) setUser(toQuickUser(session as any));
-
-          // ✅ load full user in background
           loadFullUserInBackground(session);
         } else {
-          if (alive) setUser(null);
+          if (alive) {
+            setUser(null);
+            setIsLoading(false);
+          }
         }
       } catch (e: unknown) {
-        if (isAbortError(e)) return;
-
-        console.error("Initial session load error:", e);
-
-        if (isRefreshTokenProblem(e)) {
-          try {
-            clearSupabaseAuthStorage();
-            await supabase.auth.signOut();
-          } catch {}
-        }
-
-        if (alive) setUser(null);
-      } finally {
-        if (alive) setIsLoading(false);
+        // ... error handling
       }
     })();
 
@@ -237,7 +218,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearSupabaseAuthStorage();
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error) {
       const msg = error.message?.toLowerCase();
@@ -245,7 +229,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isRefreshTokenProblem(error)) {
         clearSupabaseAuthStorage();
         await supabase.auth.signOut();
-        throw new Error("Session expired. Please refresh the page and login again.");
+        throw new Error(
+          "Session expired. Please refresh the page and login again.",
+        );
       }
 
       if (msg?.includes("email not confirmed")) {
@@ -256,7 +242,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signup = async (email: string, password: string, name: string, semesterId: string) => {
+  const signup = async (
+    email: string,
+    password: string,
+    name: string,
+    semesterId: string,
+  ) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,

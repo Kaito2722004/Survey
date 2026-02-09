@@ -45,7 +45,7 @@ interface SurveyContextType {
     title: string,
     description?: string,
     semesterId?: string | null,
-    teacherId?: string | null
+    teacherId?: string | null,
   ) => Promise<Survey | null>;
 
   updateSurvey: (id: string, updates: Partial<Survey>) => Promise<void>;
@@ -57,14 +57,14 @@ interface SurveyContextType {
   updateQuestion: (
     surveyId: string,
     questionId: string,
-    updates: Partial<Question>
+    updates: Partial<Question>,
   ) => Promise<void>;
   deleteQuestion: (surveyId: string, questionId: string) => Promise<void>;
   reorderQuestions: (surveyId: string, questions: Question[]) => Promise<void>;
 
   submitResponse: (
     surveyId: string,
-    answers: Record<string, string | string[]>
+    answers: Record<string, string | string[]>,
   ) => Promise<void>;
 
   getResponses: (surveyId: string) => Promise<SurveyResponse[]>;
@@ -75,11 +75,13 @@ const SurveyContext = createContext<SurveyContextType | undefined>(undefined);
 
 /** UI types sometimes use "checkboxes" — DB must be "checkbox" */
 const toDbType = (uiType: Question["type"]) => {
-  if (uiType === ("checkboxes" as any) || uiType === ("checkbox" as any)) return "checkbox";
+  if (uiType === ("checkboxes" as any) || uiType === ("checkbox" as any))
+    return "checkbox";
   return uiType as string;
 };
 const toUiType = (dbType: string) => {
-  if (dbType === "checkboxes" || dbType === "checkbox") return "checkbox" as Question["type"];
+  if (dbType === "checkboxes" || dbType === "checkbox")
+    return "checkbox" as Question["type"];
   return dbType as Question["type"];
 };
 
@@ -92,15 +94,7 @@ function normalizeOptions(options: any): string[] {
   return [];
 }
 
-const convertDbQuestion = (dbQuestion: {
-  id: string;
-  type: string;
-  title: string;
-  options: any | null;
-  required: boolean;
-  order_index: number;
-  category?: string | null;
-}): Question => {
+const convertDbQuestion = (dbQuestion: any): Question => {
   const opts = normalizeOptions(dbQuestion.options);
   return {
     id: dbQuestion.id,
@@ -112,7 +106,9 @@ const convertDbQuestion = (dbQuestion: {
   };
 };
 
-export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [responses, setResponses] = useState<SurveyResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -130,7 +126,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Load surveys (+ their target semesters via relation)
       const { data: surveysData, error: surveysError } = await supabase
         .from("surveys")
-        .select("id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id, survey_semesters(semester_id)")
+        .select(
+          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,survey_semesters(semester_id)",
+        )
         .eq("user_id", user.id)
         .order("updated_at", { ascending: false });
 
@@ -164,7 +162,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const mapped: Survey[] = base.map((s) => {
         const targetSemesterIds =
-          (s.survey_semesters ?? []).map((x: any) => x.semester_id).filter(Boolean) ?? [];
+          (s.survey_semesters ?? [])
+            .map((x: any) => x.semester_id)
+            .filter(Boolean) ?? [];
 
         return {
           id: s.id,
@@ -204,7 +204,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const { data: s, error: sErr } = await supabase
         .from("surveys")
-        .select("id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id, survey_semesters(semester_id)")
+        .select(
+          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,survey_semesters(semester_id)",
+        )
         .eq("id", id)
         .single();
 
@@ -219,7 +221,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (qErr) throw qErr;
 
       const targetSemesterIds =
-        (s as any).survey_semesters?.map((x: any) => x.semester_id).filter(Boolean) ?? [];
+        (s as any).survey_semesters
+          ?.map((x: any) => x.semester_id)
+          .filter(Boolean) ?? [];
 
       return {
         id: s.id,
@@ -244,7 +248,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     title: string,
     description?: string,
     semesterId?: string | null,
-    teacherId?: string | null
+    teacherId?: string | null,
   ) => {
     if (!user) return null;
 
@@ -282,33 +286,62 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return created;
   };
 
+  // ✅ OPTIMISTIC UPDATE - Instant UI feedback
   const updateSurvey = async (id: string, updates: Partial<Survey>) => {
-    const payload: any = {};
-    if (updates.title !== undefined) payload.title = updates.title;
-    if (updates.description !== undefined) payload.description = updates.description ?? null;
-    if (updates.isPublished !== undefined) payload.is_published = updates.isPublished;
-    if (updates.semesterId !== undefined) payload.semester_id = updates.semesterId ?? null;
-    if (updates.teacherId !== undefined) payload.teacher_id = updates.teacherId ?? null;
+    // ✅ 1. Update local state immediately (optimistic)
+    setSurveys((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, ...updates, updatedAt: new Date() } : s,
+      ),
+    );
 
-    // For general targeting updates:
-    if (updates.targetSemesterIds !== undefined) {
-      // Remove old
-      const del = await supabase.from("survey_semesters").delete().eq("survey_id", id);
-      if (del.error) throw del.error;
+    try {
+      // ✅ 2. Prepare database payload
+      const payload: any = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.description !== undefined)
+        payload.description = updates.description ?? null;
+      if (updates.isPublished !== undefined)
+        payload.is_published = updates.isPublished;
+      if (updates.semesterId !== undefined)
+        payload.semester_id = updates.semesterId ?? null;
+      if (updates.teacherId !== undefined)
+        payload.teacher_id = updates.teacherId ?? null;
 
-      // Insert new (empty => whole school)
-      if (updates.targetSemesterIds.length > 0) {
-        const ins = await supabase.from("survey_semesters").insert(
-          updates.targetSemesterIds.map((sid) => ({ survey_id: id, semester_id: sid }))
-        );
-        if (ins.error) throw ins.error;
+      // For general targeting updates:
+      if (updates.targetSemesterIds !== undefined) {
+        // Remove old
+        const del = await supabase
+          .from("survey_semesters")
+          .delete()
+          .eq("survey_id", id);
+        if (del.error) throw del.error;
+
+        // Insert new (empty => whole school)
+        if (updates.targetSemesterIds.length > 0) {
+          const ins = await supabase
+            .from("survey_semesters")
+            .insert(
+              updates.targetSemesterIds.map((sid) => ({
+                survey_id: id,
+                semester_id: sid,
+              })),
+            );
+          if (ins.error) throw ins.error;
+        }
       }
+
+      // ✅ 3. Update database in background
+      const res = await supabase.from("surveys").update(payload).eq("id", id);
+      if (res.error) throw res.error;
+
+      // ✅ No fetchSurveys() here - optimistic update already done!
+    } catch (error) {
+      // ❌ If database update fails, revert to server state
+      console.error("Failed to update survey:", error);
+      await fetchSurveys();
+      throw error;
     }
-
-    const res = await supabase.from("surveys").update(payload).eq("id", id);
-    if (res.error) throw res.error;
-
-    await fetchSurveys();
   };
 
   const deleteSurvey = async (id: string) => {
@@ -318,68 +351,166 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const addQuestion = async (surveyId: string, question: Question) => {
-    // Store options in DB as string[]
-    const options = (question.options ?? []).map((o: any) => o.text);
+    // ✅ Optimistic update
+    setSurveys((prev) =>
+      prev.map((s) => {
+        if (s.id !== surveyId) return s;
+        return {
+          ...s,
+          questions: [...s.questions, question],
+          updatedAt: new Date(),
+        };
+      }),
+    );
 
-    const res = await supabase.from("questions").insert({
-      survey_id: surveyId,
-      title: question.title,
-      type: toDbType(question.type),
-      options: options.length ? options : null,
-      required: !!question.required,
-      order_index: 9999,
-      category: (question as any).category ?? null,
-    });
+    try {
+      // Store options in DB as string[]
+      const options = (question.options ?? []).map((o: any) => o.text);
 
-    if (res.error) throw res.error;
-    await fetchSurveys();
+      const res = await supabase.from("questions").insert({
+        survey_id: surveyId,
+        title: question.title,
+        type: toDbType(question.type),
+        options: options.length ? options : null,
+        required: !!question.required,
+        order_index: 9999,
+        category: (question as any).category ?? null,
+      });
+
+      if (res.error) throw res.error;
+
+      // ✅ Fetch only to get the real question ID from database
+      await fetchSurveys();
+    } catch (error) {
+      console.error("Failed to add question:", error);
+      await fetchSurveys();
+      throw error;
+    }
   };
 
-  const updateQuestion = async (surveyId: string, questionId: string, updates: Partial<Question>) => {
-    const payload: any = {};
-    if (updates.title !== undefined) payload.title = updates.title;
-    if (updates.type !== undefined) payload.type = toDbType(updates.type as any);
-    if (updates.required !== undefined) payload.required = !!updates.required;
-    if ((updates as any).category !== undefined) payload.category = (updates as any).category ?? null;
+  // ✅ OPTIMISTIC UPDATE for questions - Instant typing
+  const updateQuestion = async (
+    surveyId: string,
+    questionId: string,
+    updates: Partial<Question>,
+  ) => {
+    // ✅ 1. Update local state immediately
+    setSurveys((prev) =>
+      prev.map((s) => {
+        if (s.id !== surveyId) return s;
+        return {
+          ...s,
+          questions: s.questions.map((q) =>
+            q.id === questionId ? { ...q, ...updates } : q,
+          ),
+          updatedAt: new Date(),
+        };
+      }),
+    );
 
-    if (updates.options !== undefined) {
-      const arr = (updates.options ?? []).map((o: any) => o.text);
-      payload.options = arr.length ? arr : null;
+    try {
+      // ✅ 2. Prepare database payload
+      const payload: any = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.type !== undefined)
+        payload.type = toDbType(updates.type as any);
+      if (updates.required !== undefined) payload.required = !!updates.required;
+      if ((updates as any).category !== undefined)
+        payload.category = (updates as any).category ?? null;
+
+      if (updates.options !== undefined) {
+        const arr = (updates.options ?? []).map((o: any) => o.text);
+        payload.options = arr.length ? arr : null;
+      }
+
+      // ✅ 3. Update database in background
+      const res = await supabase
+        .from("questions")
+        .update(payload)
+        .eq("id", questionId)
+        .eq("survey_id", surveyId);
+
+      if (res.error) throw res.error;
+
+      // ✅ No fetchSurveys() here - optimistic update already done!
+    } catch (error) {
+      // ❌ If database update fails, revert to server state
+      console.error("Failed to update question:", error);
+      await fetchSurveys();
+      throw error;
     }
-
-    const res = await supabase.from("questions").update(payload).eq("id", questionId).eq("survey_id", surveyId);
-    if (res.error) throw res.error;
-    await fetchSurveys();
   };
 
   const deleteQuestion = async (surveyId: string, questionId: string) => {
-    const res = await supabase.from("questions").delete().eq("id", questionId).eq("survey_id", surveyId);
-    if (res.error) throw res.error;
-    await fetchSurveys();
+    // ✅ Optimistic delete
+    setSurveys((prev) =>
+      prev.map((s) => {
+        if (s.id !== surveyId) return s;
+        return {
+          ...s,
+          questions: s.questions.filter((q) => q.id !== questionId),
+          updatedAt: new Date(),
+        };
+      }),
+    );
+
+    try {
+      const res = await supabase
+        .from("questions")
+        .delete()
+        .eq("id", questionId)
+        .eq("survey_id", surveyId);
+
+      if (res.error) throw res.error;
+    } catch (error) {
+      console.error("Failed to delete question:", error);
+      await fetchSurveys();
+      throw error;
+    }
   };
 
   const reorderQuestions = async (surveyId: string, qs: Question[]) => {
-    const updates = qs.map((q, i) => ({ id: q.id, order_index: i }));
-    for (const u of updates) {
-      const res = await supabase.from("questions").update({ order_index: u.order_index }).eq("id", u.id).eq("survey_id", surveyId);
-      if (res.error) throw res.error;
+    // ✅ Optimistic reorder
+    setSurveys((prev) =>
+      prev.map((s) => {
+        if (s.id !== surveyId) return s;
+        return {
+          ...s,
+          questions: qs,
+          updatedAt: new Date(),
+        };
+      }),
+    );
+
+    try {
+      const updates = qs.map((q, i) => ({ id: q.id, order_index: i }));
+      for (const u of updates) {
+        const res = await supabase
+          .from("questions")
+          .update({ order_index: u.order_index })
+          .eq("id", u.id)
+          .eq("survey_id", surveyId);
+
+        if (res.error) throw res.error;
+      }
+    } catch (error) {
+      console.error("Failed to reorder questions:", error);
+      await fetchSurveys();
+      throw error;
     }
-    await fetchSurveys();
   };
 
   const submitResponse = async (
-  surveyId: string,
-  answers: Record<string, string | string[]>
-) => {
-  const { error } = await supabase.from("survey_responses").insert({
-    survey_id: surveyId,
-    answers,
-  });
+    surveyId: string,
+    answers: Record<string, string | string[]>,
+  ) => {
+    const { error } = await supabase.from("survey_responses").insert({
+      survey_id: surveyId,
+      answers,
+    });
 
-  if (error) throw error;
-
-  // ✅ done. Don't call rpc here.
-};
+    if (error) throw error;
+  };
 
   const getResponses = async (surveyId: string): Promise<SurveyResponse[]> => {
     const res = await supabase
