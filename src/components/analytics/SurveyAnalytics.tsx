@@ -9,7 +9,7 @@ import {
   type AnalyticsSurveyResponse,
   getRatingDistribution,
   getCategoryAverages,
-} from "@/services/charts";
+} from "@/utils/charts";
 
 interface SurveyAnalyticsProps {
   data: AnalyticsSurveyResponse[];

@@ -40,7 +40,7 @@ export default function AdminDashboard() {
           <div className="card-elevated p-6">
             <h3 className="text-lg font-semibold">3) Create Survey</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Pick semester + teacher, then create questions dynamically.
+              Create either a Semester + Teacher survey, or a General (school-wide) survey.
             </p>
             <Button className="mt-4" onClick={() => navigate("/admin/create-survey")}>
               Create Survey
