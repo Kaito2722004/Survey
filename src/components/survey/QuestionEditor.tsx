@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Question, QuestionType, QuestionOption } from "@/types/survey";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,21 @@ const HAS_OPTIONS = new Set<QuestionType>(["multiple_choice", "checkboxes", "dro
 
 export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }: QuestionEditorProps) => {
   const hasOptions = HAS_OPTIONS.has(question.type);
+
+  useEffect(() => {
+    if (HAS_OPTIONS.has(question.type) && (!question.options || question.options.length === 0)) {
+      onUpdate({
+        options: [
+          { id: crypto.randomUUID(), text: "Option 1" },
+          { id: crypto.randomUUID(), text: "Option 2" },
+        ],
+      });
+    }
+
+    if (!HAS_OPTIONS.has(question.type) && question.options) {
+      onUpdate({ options: undefined });
+    }
+  }, [question.type]);
 
   const ensureOptionsExist = () => {
     if (!HAS_OPTIONS.has(question.type)) return;
@@ -92,12 +108,6 @@ export const QuestionEditor = ({ question, onUpdate, onDelete, dragHandleProps }
       }
     }, 0);
   };
-
-  // also ensure options exist if old data has checkboxes but missing options
-  if (hasOptions && (!question.options || question.options.length === 0)) {
-    // safe: triggers once then renders normally
-    setTimeout(ensureOptionsExist, 0);
-  }
 
   return (
     <div className="card-elevated animate-scale-in group relative overflow-hidden">

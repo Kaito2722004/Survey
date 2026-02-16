@@ -18,7 +18,7 @@ export default function AdminDashboard() {
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="card-elevated p-6">
             <h3 className="text-lg font-semibold">1) Students → Semester</h3>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -48,7 +48,17 @@ export default function AdminDashboard() {
           </div>
 
           <div className="card-elevated p-6">
-            <h3 className="text-lg font-semibold">3) Create Survey</h3>
+            <h3 className="text-lg font-semibold">3) Alumni</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Manage alumni accounts (view / promote / control access).
+            </p>
+            <Button className="mt-4" onClick={() => navigate("/admin/alumni")}>
+              Manage Alumni
+            </Button>
+          </div>
+
+          <div className="card-elevated p-6">
+            <h3 className="text-lg font-semibold">4) Create Survey</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Create either a Semester + Teacher survey, or a General
               (school-wide) survey.
@@ -62,7 +72,7 @@ export default function AdminDashboard() {
           </div>
 
           <div className="card-elevated p-6">
-            <h3 className="text-lg font-semibold">4) View Surveys</h3>
+            <h3 className="text-lg font-semibold">5) View Surveys</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               See all surveys you created, edit questions, and view responses.
             </p>
@@ -74,6 +84,7 @@ export default function AdminDashboard() {
               View Surveys
             </Button>
           </div>
+
         </div>
       </main>
     </div>

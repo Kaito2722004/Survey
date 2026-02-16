@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 type Semester = { id: string; name: string };
 type Teacher = { id: string; name: string; email: string | null };
 
-type SurveyType = "teacher" | "general";
+type SurveyType = "teacher" | "general" | "alumni"; // ✅ NEW: added "alumni" type for future use (not implemented in this code yet)
 
 export default function AdminCreateSurvey() {
   const navigate = useNavigate();
@@ -90,14 +90,27 @@ export default function AdminCreateSurvey() {
 
   // When switching modes, reset irrelevant states (keeps flows clean)
   useEffect(() => {
+    // Teacher type: keep teacher flow; clear general + alumni options
+    if (surveyType === "teacher") {
+      setLimitToSemesters(false);
+      setGeneralSemesterIds([]);
+      return;
+    }
+
+    // General type: clear teacher flow
     if (surveyType === "general") {
       setSelectedSemesterId("");
       setSelectedTeacherId("");
       setTeachers([]);
-    } else {
-      setLimitToSemesters(false);
-      setGeneralSemesterIds([]);
+      return;
     }
+
+    // Alumni type: clear BOTH flows
+    setSelectedSemesterId("");
+    setSelectedTeacherId("");
+    setTeachers([]);
+    setLimitToSemesters(false);
+    setGeneralSemesterIds([]);
   }, [surveyType]);
 
   const semesterNameById = useMemo(() => {
@@ -134,6 +147,22 @@ export default function AdminCreateSurvey() {
         if (!survey) throw new Error("Survey create returned null");
 
         toast.success("Survey created. Add questions now.");
+        navigate(`/admin/surveys/${survey.id}/edit`);
+        return;
+      }
+
+      // ✅ Alumni Survey (NEW)
+      if (surveyType === "alumni") {
+        const survey = await createSurvey(title.trim(), description.trim(), null, null);
+        if (!survey) throw new Error("Survey create returned null");
+
+        // IMPORTANT: mark it as alumni-only
+        await supabase
+          .from("surveys")
+          .update({ audience: "alumni", target_role: "alumni" })
+          .eq("id", survey.id);
+
+        toast.success("Alumni survey created. Add questions now.");
         navigate(`/admin/surveys/${survey.id}/edit`);
         return;
       }
@@ -221,6 +250,21 @@ const { error } = await (supabase as any).from("survey_semesters").insert(rows);
                   <div className="font-medium">General Survey</div>
                   <div className="text-xs text-muted-foreground">
                     School-wide (or target semesters)
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="surveyType"
+                  checked={surveyType === "alumni"}
+                  onChange={() => setSurveyType("alumni")}
+                />
+                <div>
+                  <div className="font-medium">Alumni Survey</div>
+                  <div className="text-xs text-muted-foreground">
+                    Surveys only for alumni (no semester/teacher)
                   </div>
                 </div>
               </label>

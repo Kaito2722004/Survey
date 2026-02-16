@@ -228,7 +228,7 @@ export type Database = {
 
       surveys: {
         Row: {
-          created_at: string;
+          /*created_at: string;
           description: string | null;
           id: string;
           is_published: boolean;
@@ -238,7 +238,23 @@ export type Database = {
           user_id: string;
           semester_id: string | null;
           teacher_user_id: string | null;
-          teacher_id: string | null;
+          teacher_id: string | null;*/
+          id: string
+          user_id: string
+          title: string
+          description: string | null
+          is_published: boolean
+          response_count: number
+          created_at: string
+          updated_at: string
+          semester_id: string | null
+          teacher_id: string | null
+          start_at: string | null
+          end_at: string | null
+          survey_type: string | null
+          deadline: string | null
+          target_role: string | null
+          audience: string | null
         };
         Insert: {
           created_at?: string;
@@ -252,7 +268,9 @@ export type Database = {
           semester_id?: string | null;
           teacher_user_id?: string | null;
           teacher_id?: string | null;
+          audience?: string | null
         };
+
         Update: {
           created_at?: string;
           description?: string | null;
@@ -265,6 +283,8 @@ export type Database = {
           semester_id?: string | null;
           teacher_user_id?: string | null;
           teacher_id?: string | null;
+          audience?: string | null
+
         };
         Relationships: [
           {

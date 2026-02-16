@@ -63,11 +63,12 @@ export default function StudentDashboard() {
         setSemester(null);
       }
 
-      // 3) Load all published surveys + targeted mapping
+      // 3) all published surveys for student's semester + general ones
       const { data: all, error: allErr } = await supabase
         .from("surveys")
-        .select("id,title,description,created_at,semester_id,teacher_id,survey_semesters(semester_id)")
+        .select("id,title,description,created_at,semester_id,teacher_id,audience,survey_semesters(semester_id)")
         .eq("is_published", true)
+        .in("audience", ["student", "all"])
         .order("created_at", { ascending: false });
 
       if (allErr) {
@@ -147,7 +148,7 @@ export default function StudentDashboard() {
         ? "General (Targeted)"
         : "General (School-wide)";
 
-      const subLabel = s.teacher_id ? (t?.name || t?.email || "Teacher") : "General";
+      const subLabel = s.teacher_id ? `${t?.name ?? "Teacher"}${t?.email ? ` (${t.email})` : ""}` : "General";
 
       return { ...s, badge, subLabel };
     });
