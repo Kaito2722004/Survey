@@ -229,6 +229,7 @@ export type Database = {
       surveys: {
         Row: {
           created_at: string;
+          deadline: string | null;
           description: string | null;
           id: string;
           is_published: boolean;
@@ -242,6 +243,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          deadline?: string | null;
           description?: string | null;
           id?: string;
           is_published?: boolean;
@@ -255,6 +257,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          deadline?: string | null;
           description?: string | null;
           id?: string;
           is_published?: boolean;
@@ -315,6 +318,48 @@ export type Database = {
             columns: ["semester_id"];
             isOneToOne: false;
             referencedRelation: "semesters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          type: string;
+          survey_id: string | null;
+          title: string | null;
+          message: string | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          type: string;
+          survey_id?: string | null;
+          title?: string | null;
+          message?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          type?: string;
+          survey_id?: string | null;
+          title?: string | null;
+          message?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notifications_survey_id_fkey";
+            columns: ["survey_id"];
+            isOneToOne: false;
+            referencedRelation: "surveys";
             referencedColumns: ["id"];
           },
         ];

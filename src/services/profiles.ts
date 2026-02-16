@@ -6,6 +6,7 @@ export type ProfileRow = {
   email: string;
   name: string | null;
   is_admin: boolean;
+  role?: string | null; // 'student' | 'organization' | 'alumni'
   created_at: string;
   updated_at: string;
 };
@@ -27,6 +28,7 @@ export const profilesService = {
     email: string;
     name?: string | null;
     is_admin?: boolean;
+    role?: string | null;
   }) {
     const { data, error } = await supabase
       .from("profiles")
@@ -35,6 +37,7 @@ export const profilesService = {
         email: payload.email,
         name: payload.name ?? null,
         is_admin: payload.is_admin ?? false,
+        ...(payload.role != null ? { role: payload.role } : {}),
       })
       .select("*")
       .single();
@@ -43,12 +46,16 @@ export const profilesService = {
     return data as ProfileRow;
   },
 
-  async updateByUserId(userId: string, patch: Partial<Pick<ProfileRow, "name" | "is_admin">>) {
+  async updateByUserId(
+    userId: string,
+    patch: Partial<Pick<ProfileRow, "name" | "is_admin" | "role">>,
+  ) {
     const { data, error } = await supabase
       .from("profiles")
       .update({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.is_admin !== undefined ? { is_admin: patch.is_admin } : {}),
+        ...(patch.role !== undefined ? { role: patch.role } : {}),
       })
       .eq("user_id", userId)
       .select("*")

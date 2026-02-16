@@ -4,12 +4,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { profilesService } from "@/services/profiles";
 import { semesterStudentsService } from "@/services/semesterStudents";
 
+export type UserRole = "student" | "organization" | "alumni";
+
 type AppUser = {
   id: string;
   email: string;
   name: string;
   isAdmin: boolean;
-  semesterId: string | null; // for student
+  role: UserRole; // student | organization | alumni (from profiles.role)
+  semesterId: string | null; // for student only
 };
 
 type AuthContextType = {
@@ -20,7 +23,8 @@ type AuthContextType = {
     email: string,
     password: string,
     name: string,
-    semesterId: string,
+    role: UserRole,
+    semesterId?: string | null,
   ) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -78,6 +82,12 @@ async function buildAppUser(sessionUser: SessionUser) {
   // Get or create profile
   const profile = await profilesService.getByUserId(sessionUser.id);
 
+  const metaRole =
+    sessionUser.user_metadata &&
+    typeof sessionUser.user_metadata["role"] === "string"
+      ? (sessionUser.user_metadata["role"] as UserRole)
+      : undefined;
+
   const ensured =
     profile ??
     (await profilesService.create({
@@ -85,19 +95,37 @@ async function buildAppUser(sessionUser: SessionUser) {
       email: sessionUser.email ?? "",
       name: metaName ?? sessionUser.email?.split("@")[0] ?? "User",
       is_admin: false,
+      role: metaRole ?? "student",
     }));
 
-  // Student semester (only one)
+  // After signup, metadata has role but trigger-created profile may have default 'student' — sync role
+  const profileRole = (ensured.role ?? "student") as UserRole;
+  const wantedRole = metaRole ?? profileRole;
+  if (wantedRole !== profileRole) {
+    try {
+      await profilesService.updateByUserId(sessionUser.id, { role: wantedRole });
+    } catch (e: unknown) {
+      console.error("Update profile role failed:", e);
+    }
+  }
+  const finalRole = (metaRole ?? ensured.role ?? "student") as UserRole;
+  const roleToUse = wantedRole;
+
+  // Student semester (only one) — only for role === 'student'
   let studentLink = await semesterStudentsService.getByStudent(sessionUser.id);
 
-  // If student picked semester during signup, auto-link on first login
   const metaSemesterId =
     sessionUser.user_metadata &&
     typeof sessionUser.user_metadata["semester_id"] === "string"
       ? (sessionUser.user_metadata["semester_id"] as string)
       : undefined;
 
-  if (!ensured.is_admin && !studentLink && metaSemesterId) {
+  if (
+    !ensured.is_admin &&
+    roleToUse === "student" &&
+    !studentLink &&
+    metaSemesterId
+  ) {
     try {
       studentLink = await semesterStudentsService.upsertStudentSemester(
         metaSemesterId,
@@ -113,6 +141,7 @@ async function buildAppUser(sessionUser: SessionUser) {
     email: ensured.email ?? sessionUser.email ?? "",
     name: ensured.name ?? sessionUser.email?.split("@")[0] ?? "User",
     isAdmin: !!ensured.is_admin,
+    role: roleToUse,
     semesterId: studentLink?.semester_id ?? null,
   };
 
@@ -128,6 +157,7 @@ function toQuickUser(session: {
     email,
     name: email ? email.split("@")[0] : "User",
     isAdmin: false,
+    role: "student",
     semesterId: null,
   };
 }
@@ -246,7 +276,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     email: string,
     password: string,
     name: string,
-    semesterId: string,
+    role: UserRole,
+    semesterId?: string | null,
   ) => {
     const { error } = await supabase.auth.signUp({
       email,
@@ -255,7 +286,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         emailRedirectTo: window.location.origin,
         data: {
           name,
-          semester_id: semesterId,
+          role,
+          ...(role === "student" && semesterId
+            ? { semester_id: semesterId }
+            : {}),
         },
       },
     });

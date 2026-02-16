@@ -27,6 +27,9 @@ interface Survey {
   // [] => whole school
   // ["semId1","semId2"] => only those semesters
   targetSemesterIds?: string[];
+
+  /** When the survey closes (ISO string or null) */
+  deadline?: string | null;
 }
 
 interface SurveyResponse {
@@ -46,6 +49,7 @@ interface SurveyContextType {
     description?: string,
     semesterId?: string | null,
     teacherId?: string | null,
+    deadline?: string | null,
   ) => Promise<Survey | null>;
 
   updateSurvey: (id: string, updates: Partial<Survey>) => Promise<void>;
@@ -127,7 +131,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data: surveysData, error: surveysError } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,survey_semesters(semester_id)",
+          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,deadline,survey_semesters(semester_id)",
         )
         .eq("user_id", user.id)
         .order("updated_at", { ascending: false });
@@ -178,6 +182,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
           semesterId: s.semester_id ?? null,
           teacherId: s.teacher_id ?? null,
           targetSemesterIds,
+          deadline: s.deadline ?? null,
         };
       });
 
@@ -205,7 +210,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data: s, error: sErr } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,survey_semesters(semester_id)",
+          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,deadline,survey_semesters(semester_id)",
         )
         .eq("id", id)
         .single();
@@ -237,6 +242,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
         semesterId: s.semester_id ?? null,
         teacherId: s.teacher_id ?? null,
         targetSemesterIds,
+        deadline: (s as any).deadline ?? null,
       };
     } catch (e) {
       console.error(e);
@@ -249,6 +255,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     description?: string,
     semesterId?: string | null,
     teacherId?: string | null,
+    deadline?: string | null,
   ) => {
     if (!user) return null;
 
@@ -262,6 +269,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
         response_count: 0,
         semester_id: semesterId ?? null,
         teacher_id: teacherId ?? null,
+        deadline: deadline ?? null,
       })
       .select("*")
       .single();
@@ -280,6 +288,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       semesterId: res.data.semester_id ?? null,
       teacherId: res.data.teacher_id ?? null,
       targetSemesterIds: [],
+      deadline: res.data.deadline ?? null,
     };
 
     await fetchSurveys();
@@ -307,6 +316,8 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
         payload.semester_id = updates.semesterId ?? null;
       if (updates.teacherId !== undefined)
         payload.teacher_id = updates.teacherId ?? null;
+      if (updates.deadline !== undefined)
+        payload.deadline = updates.deadline ?? null;
 
       // For general targeting updates:
       if (updates.targetSemesterIds !== undefined) {
