@@ -15,7 +15,6 @@ import NotFound from "./pages/public/NotFound";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminSemesterTeachers from "./pages/admin/AdminSemesterTeachers";
 import AdminStudentsSemester from "./pages/admin/AdminStudentsSemester";
-import AdminOrganizations from "./pages/admin/AdminOrganizations";
 import AdminCreateSurvey from "./pages/admin/AdminCreateSurvey";
 import AdminSurveyResponses from "./pages/admin/AdminSurveyResponses";
 import AdminSurveys from "./pages/admin/AdminSurveys";
@@ -31,6 +30,8 @@ import AlumniDashboard from "./pages/alumni/AlumniDashboard";
 import AlumniSurveyTaker from "./pages/alumni/AlumniSurveyTaker";
 
 import OrganizationDashboard from "./pages/organization/OrganizationDashboard";
+import AdminTargetGroups from "./pages/admin/AdminTargetGroups";
+import AdminOrgTargetManager from "./pages/admin/AdminOrgTargetManager";
 
 const queryClient = new QueryClient();
 
@@ -148,14 +149,7 @@ const AppRoutes = () => (
         </AdminRoute>
       }
     />
-    <Route
-      path="/admin/organizations"
-      element={
-        <AdminRoute>
-          <AdminOrganizations />
-        </AdminRoute>
-      }
-    />
+    
     <Route
       path="/admin/create-survey"
       element={
@@ -212,6 +206,24 @@ const AppRoutes = () => (
         </AdminRoute>
       }
     />
+
+<Route
+  path="/admin/target-groups"
+  element={
+    <AdminRoute>
+      <AdminTargetGroups />
+    </AdminRoute>
+  }
+/>
+
+<Route
+  path="/admin/target-groups/manage"
+  element={
+    <AdminRoute>
+      <AdminOrgTargetManager />
+    </AdminRoute>
+  }
+/>
 
     {/* Student */}
     <Route
