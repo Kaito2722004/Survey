@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   PlusSquare,
   Users,
-  Building2,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { NotificationBell } from "@/components/layout/NotificationBell";
@@ -57,6 +56,7 @@ export const Header = () => {
                   <LayoutDashboard className="h-4 w-4" />
                   Dashboard
                 </Link>
+
                 <Link
                   to="/admin/students-semester"
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -64,6 +64,7 @@ export const Header = () => {
                   <Users className="h-4 w-4" />
                   Students
                 </Link>
+
                 <Link
                   to="/admin/semester-teachers"
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -71,6 +72,7 @@ export const Header = () => {
                   <Users className="h-4 w-4" />
                   Teachers
                 </Link>
+
                 <Link
                   to="/admin/alumni"
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -78,13 +80,16 @@ export const Header = () => {
                   <Users className="h-4 w-4" />
                   Alumni
                 </Link>
+
+                {/* ✅ NEW: Target Groups (replaces /admin/organizations) */}
                 <Link
-                  to="/admin/organizations"
+                  to="/admin/target-groups"
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
                 >
-                  <Building2 className="h-4 w-4" />
-                  Organization
+                  <Users className="h-4 w-4" />
+                  Target Groups
                 </Link>
+
                 <Link
                   to="/admin/create-survey"
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"

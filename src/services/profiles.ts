@@ -7,6 +7,7 @@ export type ProfileRow = {
   name: string | null;
   is_admin: boolean;
   role: string;
+  organization_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -29,6 +30,7 @@ export const profilesService = {
     name?: string | null;
     is_admin?: boolean;
     role?: string;
+    organization_id?: string | null;
   }) {
     const { data, error } = await supabase
       .from("profiles")
@@ -38,6 +40,7 @@ export const profilesService = {
         name: payload.name ?? null,
         is_admin: payload.is_admin ?? false,
         role: payload.role ?? "student",
+        organization_id: payload.organization_id ?? null,
       })
       .select("*")
       .single();
@@ -48,7 +51,7 @@ export const profilesService = {
 
   async updateByUserId(
     userId: string,
-    patch: Partial<Pick<ProfileRow, "name" | "is_admin" | "role">>,
+    patch: Partial<Pick<ProfileRow, "name" | "is_admin" | "role" | "organization_id">>,
   ) {
     const { data, error } = await supabase
       .from("profiles")
@@ -56,6 +59,7 @@ export const profilesService = {
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.is_admin !== undefined ? { is_admin: patch.is_admin } : {}),
         ...(patch.role !== undefined ? { role: patch.role } : {}),
+        ...(patch.organization_id !== undefined ? { organization_id: patch.organization_id } : {}),
       })
       .eq("user_id", userId)
       .select("*")

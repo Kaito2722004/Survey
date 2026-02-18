@@ -94,18 +94,18 @@ export default function AdminDashboard() {
             </Button>
           </div>
 
+          {/* ✅ UPDATED: Target Groups + Organization Assignments */}
           <div className="card-elevated p-6">
-            <h3 className="text-lg font-semibold">4) Organizations</h3>
+            <h3 className="text-lg font-semibold">4) Target Groups</h3>
             <p className="mt-2 flex-1 text-sm text-muted-foreground">
-              Surveys for organization accounts. Set target_role to Organization
-              when creating surveys; organization users see them on their
-              dashboard.
+              Create target groups, add members (user or email), and assign
+              organization to unassigned organization users.
             </p>
             <Button
               className="mt-4"
-              onClick={() => navigate("/admin/organizations")}
+              onClick={() => navigate("/admin/target-groups")}
             >
-              Manage Organizations
+              Manage Target Groups
             </Button>
           </div>
 

@@ -242,29 +242,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const signup = async (
-    email: string,
-    password: string,
-    name: string,
-    role: UserRole,
-    semesterId?: string,
-  ) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: {
-          name,
-          role,
-          ...(role === "student" && semesterId
-            ? { semester_id: semesterId }
-            : {}),
-        },
-      },
-    });
+  email: string,
+  password: string,
+  name: string,
+  role: UserRole,
+  semesterId?: string
+) => {
+  // 1) Create auth user
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
 
-    if (error) throw new Error(error.message);
-  };
+  if (error) throw error;
+  if (!data.user) throw new Error("Signup failed: no user returned");
+
+  const userId = data.user.id;
+
+  // 2) Create/Update profile row (IMPORTANT)
+  // Use upsert so it works even if you already have DB trigger creating profiles.
+  const { error: pErr } = await supabase.from("profiles").upsert(
+    {
+      user_id: userId,
+      email,
+      name,
+      role, // ✅ "student" | "organization"
+      is_admin: false,
+      // for org users admin assigns later
+      organization_id: null,
+    },
+    { onConflict: "user_id" }
+  );
+
+  if (pErr) throw pErr;
+
+  // 3) If student => link to semester
+  if (role === "student") {
+    if (!semesterId) throw new Error("Semester is required for students");
+
+    const { error: ssErr } = await (supabase as any)
+      .from("semester_students")
+      .upsert(
+        { semester_id: semesterId, student_user_id: userId },
+        { onConflict: "semester_id,student_user_id" }
+      );
+
+    if (ssErr) throw ssErr;
+  }
+
+  // Done
+  return data.user;
+};
 
   const logout = async () => {
     const { error } = await supabase.auth.signOut();
