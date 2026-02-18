@@ -19,6 +19,8 @@ import AdminCreateSurvey from "./pages/admin/AdminCreateSurvey";
 import AdminSurveyResponses from "./pages/admin/AdminSurveyResponses";
 import AdminSurveys from "./pages/admin/AdminSurveys";
 import SurveyEditor from "./pages/admin/SurveyEditor";
+import AdminAlumni from "./pages/admin/AdminAlumni";
+
 
 
 // ✅ charts-related
@@ -28,6 +30,10 @@ import AdminGeneralChart from "@/components/charts/AdminGeneralChart";
 // Student pages
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentSurveyTaker from "./pages/student/StudentSurveyTaker";
+
+// Alumni pages
+import AlumniDashboard from "./pages/alumni/AlumniDashboard";
+import AlumniSurveyTaker from "./pages/alumni/AlumniSurveyTaker";
 
 const queryClient = new QueryClient();
 
@@ -48,7 +54,7 @@ const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (!user.isAdmin) return <Navigate to="/student" replace />;
+  if (!user.isAdmin) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
 
@@ -57,14 +63,27 @@ const StudentRoute = ({ children }: { children: React.ReactNode }) => {
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.isAdmin) return <Navigate to="/admin" replace />;
+  if (user.role !== "student") return <Navigate to="/dashboard" replace />; // ✅ add this line
   return <>{children}</>;
 };
+
+
+const AlumniRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "alumni") return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+};
+
 
 const RoleRedirect = () => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.isAdmin ? "/admin" : "/student"} replace />;
+  if (user.isAdmin) return <Navigate to="/admin" replace />;
+  if (user.role === "alumni") return <Navigate to="/alumni" replace />;
+  return <Navigate to="/student" replace />;
 };
 
 const AppRoutes = () => (
@@ -93,6 +112,7 @@ const AppRoutes = () => (
     <Route path="/admin/surveys" element={<AdminRoute><AdminSurveys /></AdminRoute>} />
     <Route path="/admin/surveys/:surveyId/edit" element={<AdminRoute><SurveyEditor /></AdminRoute>} />
     <Route path="/admin/surveys/:surveyId/responses" element={<AdminRoute><AdminSurveyResponses /></AdminRoute>} />
+    <Route path="/admin/alumni" element={<AdminRoute><AdminAlumni /></AdminRoute>} />
 
     {/* ✅ ONE route for analytics (it decides Sem+Teacher vs General) */}
     <Route
@@ -118,12 +138,31 @@ const AppRoutes = () => (
     <Route path="/student" element={<StudentRoute><StudentDashboard /></StudentRoute>} />
     <Route path="/student/survey/:id" element={<StudentRoute><StudentSurveyTaker /></StudentRoute>} />
 
+    {/* Alumni */}
+    <Route
+      path="/alumni"
+      element={
+        <AlumniRoute>
+          <AlumniDashboard />
+        </AlumniRoute>
+      }
+    />
+
+    <Route
+      path="/alumni/survey/:id"
+      element={
+        <AlumniRoute>
+          <AlumniSurveyTaker />
+        </AlumniRoute>
+      }
+    />
+
     {/* Optional: if someone hits old /survey/:id, send to student dashboard */}
     <Route
       path="/survey/:id"
       element={
         <ProtectedRoute>
-          <Navigate to="/student" replace />
+          <Navigate to="/dashboard" replace />
         </ProtectedRoute>
       }
     />

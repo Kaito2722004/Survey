@@ -73,17 +73,17 @@ interface SurveyContextType {
 
 const SurveyContext = createContext<SurveyContextType | undefined>(undefined);
 
-/** UI types sometimes use "checkboxes" — DB must be "checkbox" */
+/** UI uses "checkboxes" and DB also expects "checkboxes" */
 const toDbType = (uiType: Question["type"]) => {
-  if (uiType === ("checkboxes" as any) || uiType === ("checkbox" as any))
-    return "checkbox";
+  if (uiType === "checkboxes") return "checkboxes";
   return uiType as string;
 };
+
 const toUiType = (dbType: string) => {
-  if (dbType === "checkboxes" || dbType === "checkbox")
-    return "checkbox" as Question["type"];
+  if (dbType === "checkboxes") return "checkboxes";
   return dbType as Question["type"];
 };
+
 
 function normalizeOptions(options: any): string[] {
   if (!options) return [];

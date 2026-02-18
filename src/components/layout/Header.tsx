@@ -17,7 +17,7 @@ export const Header = () => {
       <div className="container flex h-16 items-center justify-between">
         {/* Logo */}
         <Link
-          to={user ? (user.isAdmin ? '/admin' : '/student') : '/'}
+        to={user ? (user.isAdmin ? "/admin" : user.role === "alumni" ? "/alumni" : "/student") : "/"}
           className="flex items-center gap-2"
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
@@ -52,6 +52,15 @@ export const Header = () => {
                   <Users className="h-4 w-4" />
                   Teachers
                 </Link>
+
+                <Link
+                  to="/admin/alumni"
+                  className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <Users className="h-4 w-4" />
+                  Alumni
+                </Link>
+
                 <Link
                   to="/admin/create-survey"
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
@@ -63,7 +72,7 @@ export const Header = () => {
             ) : (
               <>
                 <Link
-                  to="/student"
+                  to={user.role === "alumni" ? "/alumni" : "/student"}
                   className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
                 >
                   <LayoutDashboard className="h-4 w-4" />
@@ -86,7 +95,9 @@ export const Header = () => {
                   {user.name}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {user.isAdmin ? 'Admin' : 'Student'}
+                  {user.isAdmin
+                    ? "Admin"
+                    : user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                 </span>
               </div>
             </div>

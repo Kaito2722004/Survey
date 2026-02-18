@@ -19,6 +19,7 @@ const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [semesterId, setSemesterId] = useState("");
+  const [role, setRole] = useState<"student" | "alumni">("student");
 
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,10 +48,11 @@ const Signup = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name || !email || !password || !semesterId) {
+    if (!name || !email || !password || (role === "student" && !semesterId)) {
       toast.error("Please fill in all fields");
       return;
     }
+
 
     if (password.length < 6) {
       toast.error("Password must be at least 6 characters");
@@ -59,7 +61,7 @@ const Signup = () => {
 
     try {
       setLoading(true);
-      await signup(email, password, name, semesterId);
+      await signup(email, password, name, semesterId, role);
 
       toast.success("Account created. Check your email to confirm.");
       navigate("/login");
@@ -78,7 +80,7 @@ const Signup = () => {
         <div className="w-full max-w-md">
           <div className="rounded-lg border bg-card p-8 shadow-sm">
             <h1 className="mb-6 text-center text-2xl font-semibold">
-              Student Signup
+              Signup
             </h1>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -110,29 +112,45 @@ const Signup = () => {
                   />
                 </div>
               </div>
-
-              {/* Semester */}
+              
+              {/* Role */}
               <div>
-                <Label>Semester</Label>
+                <Label>Account Type</Label>
                 <select
                   className="w-full rounded-md border px-3 py-2"
-                  value={semesterId}
-                  onChange={(e) => setSemesterId(e.target.value)}
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as "student" | "alumni")}
                 >
-                  <option value="">-- Select Semester --</option>
-                  {semesters.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
+                  <option value="student">Student</option>
+                  <option value="alumni">Alumni</option>
                 </select>
-
-                {semesters.length === 0 && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Admin must create semesters first
-                  </p>
-                )}
               </div>
+
+              {/* Semester (students only) */}
+              {role === "student" && (
+                <div>
+                  <Label>Semester</Label>
+                  <select
+                    className="w-full rounded-md border px-3 py-2"
+                    value={semesterId}
+                    onChange={(e) => setSemesterId(e.target.value)}
+                  >
+                    <option value="">-- Select Semester --</option>
+                    {semesters.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {semesters.length === 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Admin must create semesters first
+                    </p>
+                  )}
+                </div>
+              )}
+
 
               {/* Password */}
               <div>
