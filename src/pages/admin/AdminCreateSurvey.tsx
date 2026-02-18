@@ -32,6 +32,7 @@ export default function AdminCreateSurvey() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [deadline, setDeadline] = useState(""); // optional: "YYYY-MM-DDTHH:mm" from datetime-local
   const [creating, setCreating] = useState(false);
 
   // Load semesters
@@ -137,12 +138,15 @@ export default function AdminCreateSurvey() {
     setCreating(true);
     try {
       // Teacher Survey (unchanged)
+      const deadlineIso = deadline.trim() ? new Date(deadline.trim()).toISOString() : null;
+
       if (surveyType === "teacher") {
         const survey = await createSurvey(
           title.trim(),
           description.trim(),
           selectedSemesterId,
-          selectedTeacherId
+          selectedTeacherId,
+          deadlineIso
         );
         if (!survey) throw new Error("Survey create returned null");
 
@@ -170,7 +174,7 @@ export default function AdminCreateSurvey() {
       // ✅ General Survey:
       // - always store surveys.semester_id = null and surveys.teacher_id = null
       // - if limitToSemesters + selected semesters => insert into survey_semesters
-      const survey = await createSurvey(title.trim(), description.trim(), null, null);
+      const survey = await createSurvey(title.trim(), description.trim(), null, null, deadlineIso);
       if (!survey) throw new Error("Survey create returned null");
 
       // Optional targeting: sem 1–5 (multi semesters)
@@ -387,6 +391,18 @@ const { error } = await (supabase as any).from("survey_semesters").insert(rows);
               rows={3}
               placeholder="Optional description..."
             />
+          </div>
+
+          <div className="space-y-2">
+            <div className="font-medium">Deadline (optional)</div>
+            <Input
+              type="datetime-local"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              When the survey closes. Leave empty for no deadline.
+            </p>
           </div>
 
           <div className="flex gap-2 flex-wrap">

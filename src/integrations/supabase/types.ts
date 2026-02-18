@@ -239,25 +239,26 @@ export type Database = {
           semester_id: string | null;
           teacher_user_id: string | null;
           teacher_id: string | null;*/
-          id: string
-          user_id: string
-          title: string
-          description: string | null
-          is_published: boolean
-          response_count: number
-          created_at: string
-          updated_at: string
-          semester_id: string | null
-          teacher_id: string | null
-          start_at: string | null
-          end_at: string | null
-          survey_type: string | null
-          deadline: string | null
-          target_role: string | null
-          audience: string | null
+          id: string;
+          user_id: string;
+          title: string;
+          description: string | null;
+          is_published: boolean;
+          response_count: number;
+          created_at: string;
+          updated_at: string;
+          semester_id: string | null;
+          teacher_id: string | null;
+          start_at: string | null;
+          end_at: string | null;
+          survey_type: string | null;
+          deadline: string | null;
+          target_role: string | null;
+          audience: string | null;
         };
         Insert: {
           created_at?: string;
+          deadline?: string | null;
           description?: string | null;
           id?: string;
           is_published?: boolean;
@@ -268,11 +269,12 @@ export type Database = {
           semester_id?: string | null;
           teacher_user_id?: string | null;
           teacher_id?: string | null;
-          audience?: string | null
+          audience?: string | null;
         };
 
         Update: {
           created_at?: string;
+          deadline?: string | null;
           description?: string | null;
           id?: string;
           is_published?: boolean;
@@ -283,8 +285,7 @@ export type Database = {
           semester_id?: string | null;
           teacher_user_id?: string | null;
           teacher_id?: string | null;
-          audience?: string | null
-
+          audience?: string | null;
         };
         Relationships: [
           {
@@ -335,6 +336,48 @@ export type Database = {
             columns: ["semester_id"];
             isOneToOne: false;
             referencedRelation: "semesters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          type: string;
+          survey_id: string | null;
+          title: string | null;
+          message: string | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          type: string;
+          survey_id?: string | null;
+          title?: string | null;
+          message?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          type?: string;
+          survey_id?: string | null;
+          title?: string | null;
+          message?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notifications_survey_id_fkey";
+            columns: ["survey_id"];
+            isOneToOne: false;
+            referencedRelation: "surveys";
             referencedColumns: ["id"];
           },
         ];

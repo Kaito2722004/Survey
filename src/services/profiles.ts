@@ -28,7 +28,7 @@ export const profilesService = {
     email: string;
     name?: string | null;
     is_admin?: boolean;
-    role?: string; // ✅ add this
+    role?: string;
   }) {
     const { data, error } = await supabase
       .from("profiles")
@@ -46,10 +46,10 @@ export const profilesService = {
     return data as ProfileRow;
   },
 
-async updateByUserId(
-  userId: string,
-  patch: Partial<Pick<ProfileRow, "name" | "is_admin" | "role">>,
-) {
+  async updateByUserId(
+    userId: string,
+    patch: Partial<Pick<ProfileRow, "name" | "is_admin" | "role">>,
+  ) {
     const { data, error } = await supabase
       .from("profiles")
       .update({

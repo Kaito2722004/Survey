@@ -57,6 +57,7 @@ export default function StudentSurveyTaker() {
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
   const submitLockRef = useRef(false);
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function StudentSurveyTaker() {
 
       setIsLoadingSurvey(true);
       setIsAllowed(null);
+      setIsExpired(false);
 
       const { data: semLink, error: semErr } = await supabase
         .from("semester_students")
@@ -109,6 +111,14 @@ export default function StudentSurveyTaker() {
       }
 
       const surveyData = await getSurveyPublic(id);
+
+      if (surveyData?.deadline && new Date(surveyData.deadline) < new Date()) {
+        setIsExpired(true);
+        setSurvey(null);
+        setIsLoadingSurvey(false);
+        return;
+      }
+
       setSurvey(surveyData);
 
       if (surveyData) {
@@ -198,6 +208,29 @@ export default function StudentSurveyTaker() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container py-10 flex items-center justify-center">
+          <div className="card-elevated p-8 max-w-md w-full text-center">
+            <div className="mb-4 flex justify-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+                <ShieldAlert className="h-8 w-8 text-destructive" />
+              </div>
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">
+              Survey expired
+            </h1>
+            <p className="mt-2 text-muted-foreground">
+              This survey has expired and can&apos;t be taken.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }

@@ -11,6 +11,7 @@ export type SurveyRow = {
   updated_at: string;
   semester_id: string | null;
   teacher_id: string | null;
+  deadline: string | null;
 };
 
 export const surveysService = {
@@ -56,6 +57,7 @@ export const surveysService = {
     semester_id: string;
     teacher_id: string;
     is_published?: boolean;
+    deadline?: string | null;
   }) {
     const { data, error } = await supabase
       .from("surveys")
@@ -66,6 +68,7 @@ export const surveysService = {
         semester_id: payload.semester_id,
         teacher_id: payload.teacher_id,
         is_published: payload.is_published ?? true,
+        deadline: payload.deadline ?? null,
       })
       .select("*")
       .single();

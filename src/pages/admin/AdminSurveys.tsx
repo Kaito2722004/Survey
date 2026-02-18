@@ -5,6 +5,10 @@ import { toast } from "sonner";
 import { Header } from "@/components/layout/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { publishSurvey } from "@/services/surveyQueries";
+import { useAuth } from "@/contexts/AuthContext";
+import { notificationsService } from "@/services/notifications";
+import { useNotifications } from "@/contexts/NotificationsContext";
+import { surveysService } from "@/services/surveys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckCircle } from "lucide-react";
@@ -63,6 +67,8 @@ function dateOnlyToRange(val: string): { start: Date; end: Date } | null {
 
 export default function AdminSurveys() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { refetch: refetchNotifications } = useNotifications();
 
   const [loading, setLoading] = useState(true);
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
@@ -77,6 +83,33 @@ export default function AdminSurveys() {
   const [semesterId, setSemesterId] = useState<string>("all"); // "all" | semester uuid
   const [fromDT, setFromDT] = useState<string>(""); // created_at from
   const [toDT, setToDT] = useState<string>(""); // created_at to
+
+  // Ensure "survey completed" notifications when admin views the survey list (not only on dashboard)
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const run = async () => {
+      try {
+        const mySurveys = await surveysService.getByAdminUser(user.id);
+        const pastDeadline = mySurveys.filter(
+          (s) => s.deadline && new Date(s.deadline) < new Date()
+        );
+        await notificationsService.ensureAdminNotifications(
+          user.id,
+          pastDeadline.map((s) => ({
+            id: s.id,
+            title: s.title,
+            deadline: s.deadline,
+          }))
+        );
+        refetchNotifications();
+      } catch (e) {
+        console.error("Ensure admin notifications:", e);
+      }
+    };
+
+    run();
+  }, [user?.id, refetchNotifications]);
 
   const loadSemesters = async () => {
     try {
@@ -129,6 +162,21 @@ export default function AdminSurveys() {
   const handlePublish = async (surveyId: string) => {
     try {
       await publishSurvey(surveyId);
+      const survey = surveys.find((s) => s.id === surveyId);
+      if (user?.id && survey) {
+        try {
+          await notificationsService.create({
+            user_id: user.id,
+            type: "survey_published",
+            survey_id: surveyId,
+            title: "Survey published",
+            message: `"${survey.title}" is now published.`,
+          });
+          refetchNotifications();
+        } catch (e) {
+          console.error("Publish notification:", e);
+        }
+      }
       toast.success("Survey published successfully");
       await loadSurveys(); // ✅ refresh list
     } catch (e: any) {

@@ -4,15 +4,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { profilesService } from "@/services/profiles";
 import { semesterStudentsService } from "@/services/semesterStudents";
 
-type UserRole = "admin" | "student" | "alumni" | "teacher" | "stakeholder";
+export type UserRole =
+  | "admin"
+  | "student"
+  | "alumni"
+  | "teacher"
+  | "stakeholder"
+  | "organization";
 
 type AppUser = {
   id: string;
   email: string;
   name: string;
   isAdmin: boolean;
-  role: UserRole; // ✅ NEW
-  semesterId: string | null; // for student
+  role: UserRole;
+  semesterId: string | null;
 };
 
 type AuthContextType = {
@@ -23,8 +29,8 @@ type AuthContextType = {
     email: string,
     password: string,
     name: string,
-    semesterId: string,
     role: UserRole,
+    semesterId?: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -46,8 +52,7 @@ function getErrorMessage(err: unknown): string {
 }
 
 function isAbortError(err: unknown) {
-  const msg = getErrorMessage(err).toLowerCase();
-  return msg.includes("abort");
+  return getErrorMessage(err).toLowerCase().includes("abort");
 }
 
 function isRefreshTokenProblem(err: unknown) {
@@ -72,23 +77,17 @@ function clearSupabaseAuthStorage() {
   keysToRemove.forEach((k) => localStorage.removeItem(k));
 }
 
-async function buildAppUser(sessionUser: SessionUser) {
-  const metaName =
-    sessionUser.user_metadata &&
-    typeof sessionUser.user_metadata["name"] === "string"
-      ? (sessionUser.user_metadata["name"] as string)
-      : undefined;
+async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
+  const meta = sessionUser.user_metadata ?? {};
 
-  // Also check role from metadata for auto-linking (only if not admin and no existing link)
+  const metaName = typeof meta["name"] === "string" ? meta["name"] : undefined;
   const metaRole =
-    sessionUser.user_metadata &&
-    typeof sessionUser.user_metadata["role"] === "string"
-      ? (sessionUser.user_metadata["role"] as UserRole)
-      : undefined;
+    typeof meta["role"] === "string" ? (meta["role"] as UserRole) : undefined;
+  const metaSemesterId =
+    typeof meta["semester_id"] === "string" ? meta["semester_id"] : undefined;
 
   // Get or create profile
   const profile = await profilesService.getByUserId(sessionUser.id);
-
   const ensured =
     profile ??
     (await profilesService.create({
@@ -99,72 +98,51 @@ async function buildAppUser(sessionUser: SessionUser) {
       role: metaRole ?? "student",
     } as any));
 
-    // ✅ Sync profile.role with auth metadata role (fixes old users stuck as "student")
+  // Sync profile role with auth metadata role if they differ
   if (!ensured.is_admin && metaRole && (ensured as any).role !== metaRole) {
     try {
       const updated = await profilesService.updateByUserId(sessionUser.id, {
         role: metaRole,
       });
-      (ensured as any).role = updated.role; // keep local ensured in sync
+      (ensured as any).role = updated.role;
     } catch (e) {
       console.error("Failed to sync role:", e);
     }
   }
 
+  const role: UserRole = ensured.is_admin
+    ? "admin"
+    : ((metaRole ?? (ensured as any).role ?? "student") as UserRole);
 
-  // Student semester (only one)
-  let studentLink = await semesterStudentsService.getByStudent(sessionUser.id);
+  // Auto-link student to semester if not already linked
+  let studentLink =
+    role === "student"
+      ? await semesterStudentsService.getByStudent(sessionUser.id)
+      : null;
 
-  // If student picked semester during signup, auto-link on first login
-  const metaSemesterId =
-    sessionUser.user_metadata &&
-    typeof sessionUser.user_metadata["semester_id"] === "string"
-      ? (sessionUser.user_metadata["semester_id"] as string)
-      : undefined;
-
-
-  if (!ensured.is_admin && !studentLink && metaSemesterId) {
+  if (
+    !ensured.is_admin &&
+    role === "student" &&
+    !studentLink &&
+    metaSemesterId
+  ) {
     try {
       studentLink = await semesterStudentsService.upsertStudentSemester(
         metaSemesterId,
         sessionUser.id,
       );
-    } catch (e: unknown) {
+    } catch (e) {
       console.error("Auto semester link failed:", e);
     }
   }
 
-  const roleFromProfile =
-    typeof (ensured as any).role === "string" ? (ensured as any).role : undefined;
-
-  const role: UserRole = ensured.is_admin
-    ? "admin"
-    : (roleFromProfile as UserRole) ?? "student";
-
-  const appUser: AppUser = {
+  return {
     id: sessionUser.id,
     email: ensured.email ?? sessionUser.email ?? "",
     name: ensured.name ?? sessionUser.email?.split("@")[0] ?? "User",
     isAdmin: !!ensured.is_admin,
-    role, // ✅ add this
-    semesterId: role === "student" ? studentLink?.semester_id ?? null : null,
-  };
-
-
-  return appUser;
-}
-
-function toQuickUser(session: {
-  user: { id: string; email?: string | null };
-}): AppUser {
-  const email = session.user.email ?? "";
-  return {
-    id: session.user.id,
-    email,
-    name: email ? email.split("@")[0] : "User",
-    isAdmin: false,
-    role: "student",
-    semesterId: null,
+    role,
+    semesterId: role === "student" ? (studentLink?.semester_id ?? null) : null,
   };
 }
 
@@ -184,55 +162,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user_metadata: session.user.user_metadata as Record<string, unknown>,
       })
         .then((u) => {
-          if (!alive) return;
-          setUser(u);
+          if (alive) setUser(u);
         })
         .catch((e) => {
-          if (isAbortError(e)) return;
-          console.error("buildAppUser error:", e);
+          if (!isAbortError(e)) console.error("buildAppUser error:", e);
         })
         .finally(() => {
-          if (alive) setIsLoading(false); // ✅ Only stop loading after full user is built
+          if (alive) setIsLoading(false);
         });
     };
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      try {
-        if (!alive) return;
-        if (session?.user) {
-          setIsLoading(true); // ✅ Keep loading state
-          loadFullUserInBackground(session);
-        } else {
-          setUser(null);
-          setIsLoading(false);
-        }
-      } catch (e: unknown) {
-        // ... error handling
-        if (alive) setIsLoading(false);
+      if (!alive) return;
+      if (session?.user) {
+        setIsLoading(true);
+        loadFullUserInBackground(session);
+      } else {
+        setUser(null);
+        setIsLoading(false);
       }
     });
 
-    // Initial session load
     (async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) {
-          // ... error handling
+          if (alive) setIsLoading(false);
           return;
         }
-        const session = data?.session;
-        if (session?.user) {
-          loadFullUserInBackground(session);
-        } else {
-          if (alive) {
-            setUser(null);
-            setIsLoading(false);
-          }
+        if (data?.session?.user) {
+          loadFullUserInBackground(data.session);
+        } else if (alive) {
+          setUser(null);
+          setIsLoading(false);
         }
-      } catch (e: unknown) {
-        // ... error handling
+      } catch (e) {
+        console.error("getSession error:", e);
+        if (alive) setIsLoading(false);
       }
     })();
 
@@ -243,7 +211,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const login = async (email: string, password: string) => {
-    // ✅ Clear any broken session FIRST (prevents refresh-token loops)
     try {
       const { data } = await supabase.auth.getSession();
       if (data?.session) {
@@ -260,8 +227,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     });
 
     if (error) {
-      const msg = error.message?.toLowerCase();
-
       if (isRefreshTokenProblem(error)) {
         clearSupabaseAuthStorage();
         await supabase.auth.signOut();
@@ -269,11 +234,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           "Session expired. Please refresh the page and login again.",
         );
       }
-
-      if (msg?.includes("email not confirmed")) {
+      if (error.message?.toLowerCase().includes("email not confirmed")) {
         throw new Error("Please confirm your email first (check your inbox).");
       }
-
       throw new Error(error.message);
     }
   };
@@ -282,8 +245,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     email: string,
     password: string,
     name: string,
-    semesterId: string,
     role: UserRole,
+    semesterId?: string,
   ) => {
     const { error } = await supabase.auth.signUp({
       email,
@@ -292,8 +255,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         emailRedirectTo: window.location.origin,
         data: {
           name,
-          semester_id: semesterId,
-          role, // ✅ store role in metadata for auto-linking on login
+          role,
+          ...(role === "student" && semesterId
+            ? { semester_id: semesterId }
+            : {}),
         },
       },
     });

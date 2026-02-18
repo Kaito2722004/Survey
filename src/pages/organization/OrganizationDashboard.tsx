@@ -6,6 +6,7 @@ import { notificationsService } from "@/services/notifications";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,15 +16,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
 
 type SurveyRow = {
   id: string;
   title: string;
   description: string | null;
-  created_at: string;
-  semester_id: string | null;
-  teacher_id: string | null;
   deadline: string | null;
   survey_semesters?: { semester_id: string }[] | null;
 };
@@ -34,11 +31,9 @@ function getDeadlineText(deadline: string | null | undefined): string | null {
   const now = new Date();
   const msLeft = end.getTime() - now.getTime();
   if (msLeft <= 0) return "EXPIRED";
-
   const msPerMin = 60 * 1000;
   const msPerHour = 60 * msPerMin;
   const msPerDay = 24 * msPerHour;
-
   if (msLeft < msPerHour) {
     const mins = Math.max(1, Math.ceil(msLeft / msPerMin));
     return mins === 1 ? "1 minute left" : `${mins} minutes left`;
@@ -56,23 +51,11 @@ function isExpired(deadline: string | null | undefined): boolean {
   return new Date(deadline) < new Date();
 }
 
-type SemesterRow = { id: string; name: string };
-type TeacherRow = { id: string; name: string; email: string | null };
-
-export default function StudentDashboard() {
+export default function OrganizationDashboard() {
   const { user } = useAuth();
   const { refetch: refetchNotifications } = useNotifications();
   const [loading, setLoading] = useState(true);
-
-  const [semester, setSemester] = useState<SemesterRow | null>(null);
-  const [studentSemesterId, setStudentSemesterId] = useState<string | null>(
-    null,
-  );
-
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
-  const [teacherMap, setTeacherMap] = useState<Map<string, TeacherRow>>(
-    new Map(),
-  );
   const [showExpiredDialog, setShowExpiredDialog] = useState(false);
 
   useEffect(() => {
@@ -81,140 +64,58 @@ export default function StudentDashboard() {
     const load = async () => {
       setLoading(true);
 
-      // 1) student's semester_id (optional)
-      const { data: semLink, error: semErr } = await supabase
-        .from("semester_students")
-        .select("semester_id")
-        .eq("student_user_id", user.id)
-        .maybeSingle();
-
-      if (semErr) console.error(semErr);
-
-      const semId = semLink?.semester_id ?? null;
-      setStudentSemesterId(semId);
-
-      // 2) semester name (only if assigned)
-      if (semId) {
-        const { data: semRow, error: semRowErr } = await supabase
-          .from("semesters")
-          .select("id,name")
-          .eq("id", semId)
-          .single();
-
-        if (!semRowErr) setSemester(semRow);
-        else {
-          console.error(semRowErr);
-          setSemester(null);
-        }
-      } else {
-        setSemester(null);
-      }
-
-      // 3) all published surveys for student's semester + general ones
-      const { data: all, error: allErr } = await supabase
+      const res = await (supabase as any)
         .from("surveys")
-        .select(
-          "id,title,description,created_at,semester_id,teacher_id,deadline,survey_semesters(semester_id)",
-        )
+        .select("id,title,description,deadline,survey_semesters(semester_id)")
         .eq("is_published", true)
-        .in("audience", ["student", "all"])
+        .eq("target_role", "organization")
         .order("created_at", { ascending: false });
+      const { data: all, error } = res as { data: SurveyRow[] | null; error: { message: string } | null };
 
-      if (allErr) {
-        console.error(allErr);
+      if (error) {
+        console.error(error);
         setSurveys([]);
-        setTeacherMap(new Map());
         setLoading(false);
         return;
       }
 
       const allSurveys = (all ?? []) as SurveyRow[];
 
-      // 4) Filter what student can see
+      // Only school-wide (no semester restriction) surveys for organization
       const visible = allSurveys.filter((s) => {
-        const isTeacherSurvey = !!s.teacher_id;
-
-        if (isTeacherSurvey) {
-          if (!semId) return false;
-          return s.semester_id === semId;
-        }
-
         const restricted = (s.survey_semesters ?? []).map((x) => x.semester_id);
-
-        if (!semId) return restricted.length === 0;
-        if (restricted.length > 0) return restricted.includes(semId);
-
-        return true;
+        return restricted.length === 0;
       });
 
       setSurveys(visible);
-
-      // 5) Load teacher names for teacher surveys
-      const teacherIds = Array.from(
-        new Set(visible.map((s) => s.teacher_id).filter(Boolean) as string[]),
-      );
-
-      if (teacherIds.length > 0) {
-        const { data: tRows, error: tErr } = await supabase
-          .from("teachers")
-          .select("id,name,email")
-          .in("id", teacherIds);
-
-        if (!tErr && tRows) {
-          setTeacherMap(new Map(tRows.map((t) => [t.id, t as TeacherRow])));
-        } else {
-          console.error(tErr);
-          setTeacherMap(new Map());
-        }
-      } else {
-        setTeacherMap(new Map());
-      }
-
       setLoading(false);
 
-      // 6) Create notifications for new surveys and deadline-in-1h
+      // Create notifications for org user (new survey, deadline soon, expired) — same as student
       try {
         await notificationsService.ensureStudentNotifications(
           user.id,
-          visible.map((s) => ({
-            id: s.id,
-            title: s.title,
-            deadline: s.deadline,
-          })),
+          visible.map((s) => ({ id: s.id, title: s.title, deadline: s.deadline }))
         );
         refetchNotifications();
       } catch (e) {
-        console.error("Ensure student notifications:", e);
+        console.error("Ensure organization notifications:", e);
         toast.error(
-          "Notifications could not be created. Run the SQL in supabase-notification-insert-policy.sql in your Supabase SQL Editor.",
+          "Notifications could not be created. Run the SQL in supabase-notification-insert-policy.sql in your Supabase SQL Editor."
         );
       }
     };
 
     load();
-  }, [user, refetchNotifications]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetchNotifications is stable
+  }, [user?.id]);
 
   const cards = useMemo(() => {
-    return surveys.map((s) => {
-      const t = s.teacher_id ? teacherMap.get(s.teacher_id) : null;
-      const restricted = (s.survey_semesters ?? []).map((x) => x.semester_id);
-
-      const badge = s.teacher_id
-        ? "Teacher Survey"
-        : restricted.length > 0
-          ? "General (Targeted)"
-          : "General (School-wide)";
-
-      const subLabel = s.teacher_id
-        ? `${t?.name ?? "Teacher"}${t?.email ? ` (${t.email})` : ""}`
-        : "General";
-
-      const deadlineText = getDeadlineText(s.deadline);
-      const expired = isExpired(s.deadline);
-
-      return { ...s, badge, subLabel, deadlineText, expired };
-    });
-  }, [surveys, teacherMap]);
+    return surveys.map((s) => ({
+      ...s,
+      deadlineText: getDeadlineText(s.deadline),
+      expired: isExpired(s.deadline),
+    }));
+  }, [surveys]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -222,28 +123,21 @@ export default function StudentDashboard() {
       <main className="container py-8 space-y-6">
         <div>
           <h1 className="text-3xl font-semibold text-foreground">
-            Student Dashboard
+            Organization Dashboard
           </h1>
           <p className="mt-1 text-muted-foreground">
-            You can answer school-wide surveys, targeted general surveys, and
-            surveys from your semester.
+            Surveys available for your organization. You can participate in school-wide surveys.
           </p>
         </div>
 
+        {/* Same style as Student "Your semester" card */}
         <div className="card-elevated p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm text-muted-foreground">Your semester</div>
+              <div className="text-sm text-muted-foreground">Your organization</div>
               <div className="text-xl font-semibold">
-                {semester ? semester.name : "Not assigned yet"}
+                {user?.name ?? "Organization"}
               </div>
-              {!semester && (
-                <div className="mt-1 text-sm text-muted-foreground">
-                  You will only see{" "}
-                  <span className="font-medium">school-wide</span> general
-                  surveys.
-                </div>
-              )}
             </div>
             <Button variant="outline" onClick={() => window.location.reload()}>
               Refresh
@@ -261,7 +155,7 @@ export default function StudentDashboard() {
 
           {!loading && cards.length === 0 && (
             <div className="text-sm text-muted-foreground">
-              No surveys available right now.
+              No school-wide surveys available right now.
             </div>
           )}
 
@@ -269,11 +163,9 @@ export default function StudentDashboard() {
             {cards.map((s) => (
               <div key={s.id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm text-muted-foreground">
-                    {s.subLabel}
-                  </div>
+                  <div className="text-sm text-muted-foreground">General</div>
                   <span className="text-xs rounded-full border border-border px-2 py-0.5 text-muted-foreground">
-                    {s.badge}
+                    General (School-wide)
                   </span>
                 </div>
 
@@ -308,10 +200,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        <AlertDialog
-          open={showExpiredDialog}
-          onOpenChange={setShowExpiredDialog}
-        >
+        <AlertDialog open={showExpiredDialog} onOpenChange={setShowExpiredDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Survey expired</AlertDialogTitle>
