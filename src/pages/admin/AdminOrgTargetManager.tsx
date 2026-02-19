@@ -17,24 +17,17 @@ import {
    Types
 ======================= */
 
-type OrganizationRow = {
-  id: string;
-  name: string;
-};
+type OrganizationRow = { id: string; name: string };
 
 type ProfileRow = {
   user_id: string;
   email: string;
   name: string | null;
-  role: string;
+  role: string | null;
   organization_id: string | null;
 };
 
-type TargetGroupRow = {
-  id: string;
-  name: string;
-  description: string | null;
-};
+type TargetGroupRow = { id: string; name: string; description: string | null };
 
 type TargetGroupMemberRow = {
   id: string;
@@ -52,7 +45,8 @@ export default function AdminOrgTargetManager() {
 
   // data
   const [organizations, setOrganizations] = useState<OrganizationRow[]>([]);
-  const [orgUsers, setOrgUsers] = useState<ProfileRow[]>([]);
+  const [noRoleUsers, setNoRoleUsers] = useState<ProfileRow[]>([]);
+  const [orgRoleUsers, setOrgRoleUsers] = useState<ProfileRow[]>([]);
   const [groups, setGroups] = useState<TargetGroupRow[]>([]);
   const [members, setMembers] = useState<TargetGroupMemberRow[]>([]);
 
@@ -62,13 +56,12 @@ export default function AdminOrgTargetManager() {
   // create group
   const [newGroupName, setNewGroupName] = useState("");
 
-  // add member
-  const [memberEmail, setMemberEmail] = useState("");
+  // add member (by selecting org-role user only)
+  const [selectedMemberUserId, setSelectedMemberUserId] = useState("");
 
-  // assignment
+  // onboarding: NULL role -> organization
   const [assignSearch, setAssignSearch] = useState("");
   const [assignUserId, setAssignUserId] = useState("");
-  const [assignOrgId, setAssignOrgId] = useState("");
 
   /* =======================
      Load data
@@ -77,29 +70,38 @@ export default function AdminOrgTargetManager() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [
-        orgRes,
-        orgUsersRes,
-        groupRes,
-      ] = await Promise.all([
-        supabase.from("organizations").select("id,name").order("name"),
-        supabase
-          .from("profiles")
-          .select("user_id,email,name,role,organization_id")
-          .eq("role", "organization")
-          .order("email"),
-        supabase
-          .from("target_groups")
-          .select("id,name,description")
-          .order("name"),
-      ]);
+      const [orgRes, noRoleUsersRes, orgRoleUsersRes, groupRes] =
+        await Promise.all([
+          supabase.from("organizations").select("id,name").order("name"),
+
+          // users with role = NULL
+          supabase
+            .from("profiles")
+            .select("user_id,email,name,role,organization_id")
+            .is("role", null)
+            .order("email"),
+
+          // users with role = organization
+          supabase
+            .from("profiles")
+            .select("user_id,email,name,role,organization_id")
+            .eq("role", "organization")
+            .order("email"),
+
+          supabase
+            .from("target_groups")
+            .select("id,name,description")
+            .order("name"),
+        ]);
 
       if (orgRes.error) throw orgRes.error;
-      if (orgUsersRes.error) throw orgUsersRes.error;
+      if (noRoleUsersRes.error) throw noRoleUsersRes.error;
+      if (orgRoleUsersRes.error) throw orgRoleUsersRes.error;
       if (groupRes.error) throw groupRes.error;
 
       setOrganizations(orgRes.data ?? []);
-      setOrgUsers(orgUsersRes.data ?? []);
+      setNoRoleUsers(noRoleUsersRes.data ?? []);
+      setOrgRoleUsers(orgRoleUsersRes.data ?? []);
       setGroups(groupRes.data ?? []);
 
       if (!selectedGroupId && groupRes.data?.length) {
@@ -128,10 +130,12 @@ export default function AdminOrgTargetManager() {
 
   useEffect(() => {
     loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedGroupId) loadMembers(selectedGroupId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroupId]);
 
   /* =======================
@@ -144,14 +148,14 @@ export default function AdminOrgTargetManager() {
     return m;
   }, [organizations]);
 
-  const filteredOrgUsers = useMemo(() => {
-    const q = assignSearch.toLowerCase();
-    return orgUsers.filter(
+  const filteredNoRoleUsers = useMemo(() => {
+    const q = assignSearch.toLowerCase().trim();
+    return noRoleUsers.filter(
       (u) =>
         u.email.toLowerCase().includes(q) ||
         (u.name ?? "").toLowerCase().includes(q),
     );
-  }, [orgUsers, assignSearch]);
+  }, [noRoleUsers, assignSearch]);
 
   /* =======================
      Actions
@@ -171,19 +175,24 @@ export default function AdminOrgTargetManager() {
     loadAll();
   };
 
-  const addMemberByEmail = async () => {
+  // Add member by selecting a user_id (role=organization)
+  const addMemberByUserId = async () => {
     if (!selectedGroupId) return toast.error("Select a group first");
-    if (!memberEmail.trim()) return toast.error("Email required");
+    if (!selectedMemberUserId) return toast.error("Select a member user");
+
+    const exists = members.some((m) => m.member_user_id === selectedMemberUserId);
+    if (exists) return toast.error("This user is already in the group");
 
     const { error } = await supabase.from("target_group_members").insert({
       target_group_id: selectedGroupId,
-      member_email: memberEmail.trim().toLowerCase(),
+      member_user_id: selectedMemberUserId,
+      member_email: null,
     });
 
     if (error) return toast.error(error.message);
 
     toast.success("Member added");
-    setMemberEmail("");
+    setSelectedMemberUserId("");
     loadMembers(selectedGroupId);
   };
 
@@ -199,20 +208,18 @@ export default function AdminOrgTargetManager() {
     loadMembers(selectedGroupId);
   };
 
-  const assignOrganization = async () => {
-    if (!assignUserId) return toast.error("Select user");
-    if (!assignOrgId) return toast.error("Select organization");
+  const assignOrganizationRole = async () => {
+    if (!assignUserId) return toast.error("Select a user");
 
     const { error } = await supabase
       .from("profiles")
-      .update({ organization_id: assignOrgId })
+      .update({ role: "organization" })
       .eq("user_id", assignUserId);
 
     if (error) return toast.error(error.message);
 
-    toast.success("Organization assigned");
+    toast.success("Role set to organization");
     setAssignUserId("");
-    setAssignOrgId("");
     loadAll();
   };
 
@@ -264,45 +271,70 @@ export default function AdminOrgTargetManager() {
           <div className="lg:col-span-2 card-elevated p-6 space-y-4">
             <h2 className="font-semibold">Members</h2>
 
-            <div className="flex gap-2">
-              <Input
-                placeholder="Enter email"
-                value={memberEmail}
-                onChange={(e) => setMemberEmail(e.target.value)}
-              />
-              <Button onClick={addMemberByEmail}>Add</Button>
+            {/* ✅ Only Select box (role=organization) */}
+            <div className="grid gap-2 md:grid-cols-3">
+              <Select
+                value={selectedMemberUserId}
+                onValueChange={setSelectedMemberUserId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select organization user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {orgRoleUsers.map((u) => (
+                    <SelectItem key={u.user_id} value={u.user_id}>
+                      {(u.name ?? u.email) + " • " + u.email}
+                      {u.organization_id
+                        ? ` • ${orgNameById.get(u.organization_id) ?? "(unknown org)"}`
+                        : " • (no org)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button onClick={addMemberByUserId}>Add Member</Button>
             </div>
 
-            {members.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center justify-between rounded border px-3 py-2"
-              >
-                <span>
-                  {m.member_email ??
-                    orgUsers.find((u) => u.user_id === m.member_user_id)
-                      ?.email}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeMember(m.id)}
+            {members.map((m) => {
+              const fromUser =
+                m.member_user_id
+                  ? orgRoleUsers.find((u) => u.user_id === m.member_user_id) ??
+                    noRoleUsers.find((u) => u.user_id === m.member_user_id)
+                  : null;
+
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded border px-3 py-2"
                 >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
+                  <span>
+                    {fromUser?.email ??
+                      m.member_email ??
+                      m.member_user_id ??
+                      "(unknown member)"}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeMember(m.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* Assignments */}
+        {/* Onboarding: NULL role -> organization */}
         <div className="card-elevated p-6 space-y-4">
-          <h2 className="font-semibold">Assignments</h2>
+          <h2 className="font-semibold">User Onboarding</h2>
           <p className="text-sm text-muted-foreground">
-            Assign or reassign organization users to an organization.
+            Fetch users with <b>role = NULL</b> and set them to{" "}
+            <b>organization</b>.
           </p>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <Input
               placeholder="Search name or email"
               value={assignSearch}
@@ -311,37 +343,27 @@ export default function AdminOrgTargetManager() {
 
             <Select value={assignUserId} onValueChange={setAssignUserId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select organization user" />
+                <SelectValue placeholder="Select user (role is NULL)" />
               </SelectTrigger>
               <SelectContent>
-                {filteredOrgUsers.map((u) => (
+                {filteredNoRoleUsers.map((u) => (
                   <SelectItem key={u.user_id} value={u.user_id}>
                     {(u.name ?? u.email) + " • " + u.email}
-                    {u.organization_id
-                      ? ` • ${orgNameById.get(u.organization_id)}`
-                      : " • (no org)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={assignOrgId} onValueChange={setAssignOrgId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select organization" />
-              </SelectTrigger>
-              <SelectContent>
-                {organizations.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          <Button onClick={assignOrganization}>
-            Assign / Reassign Organization
+          <Button onClick={assignOrganizationRole} disabled={loading}>
+            Set Role = organization
           </Button>
+
+          {!loading && (
+            <p className="text-sm text-muted-foreground">
+              Found <b>{noRoleUsers.length}</b> user(s) with role = NULL.
+            </p>
+          )}
         </div>
       </main>
     </div>

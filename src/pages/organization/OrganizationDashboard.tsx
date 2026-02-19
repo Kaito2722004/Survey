@@ -61,118 +61,109 @@ export default function OrganizationDashboard() {
   const [orgName, setOrgName] = useState<string>("Organization");
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
 
     const load = async () => {
       setLoading(true);
 
       try {
-        // 1) Get my organization_id from profiles
+        // Step 1/2: Load my profile once
         const { data: profile, error: profileErr } = await supabase
-  .from("profiles")
-  .select("email, organization_id")
-  .eq("user_id", user.id)
-  .single();
-
-if (profileErr || !profile) {
-  throw profileErr;
-}
-
-const myEmail = profile.email.toLowerCase();
-        const profRes = await (supabase as any)
           .from("profiles")
-          .select("organization_id")
+          .select("email, role, organization_id")
           .eq("user_id", user.id)
           .single();
 
-        const { data: prof, error: profErr } = profRes as {
-          data: { organization_id: string | null } | null;
-          error: { message: string } | null;
-        };
+        if (profileErr || !profile) throw profileErr;
 
-        if (profErr) throw profErr;
+        const myEmail = (profile.email ?? "").toLowerCase();
+        const myOrgId = profile.organization_id;
 
-        const myOrgId = prof?.organization_id;
+        // (Optional) If you want to enforce only org role can view this dashboard:
+        // if (profile.role !== "organization") { setSurveys([]); setOrgName("Organization"); return; }
+
+        // Step 2b: Show org name if org assigned, otherwise "Not assigned"
         if (!myOrgId) {
-          // No org assigned => show nothing
-          setSurveys([]);
           setOrgName("Not assigned");
-          setLoading(false);
-          return;
+        } else {
+          const { data: orgRow, error: orgErr } = await supabase
+            .from("organizations")
+            .select("name")
+            .eq("id", myOrgId)
+            .maybeSingle();
+
+          if (orgErr) throw orgErr;
+          setOrgName(orgRow?.name ?? "Organization");
         }
 
-        // 2) Fetch org name
-        const orgRes = await (supabase as any)
-          .from("organizations")
-          .select("name")
-          .eq("id", myOrgId)
-          .maybeSingle();
-
-        const { data: orgRow } = orgRes as { data: { name: string } | null };
-        setOrgName(orgRow?.name ?? "Organization");
-
-        // 3) Get target groups that include me (by org or by user)
+        // Step 3: Get my target group ids (by user id OR email fallback)
         const { data: members, error: memberErr } = await supabase
-  .from("target_group_members")
-  .select("target_group_id")
-  .or(
-    `member_user_id.eq.${user.id},member_email.eq.${myEmail}`
-  );
+          .from("target_group_members")
+          .select("target_group_id")
+          .or(`member_user_id.eq.${user.id},member_email.eq.${myEmail}`);
 
-if (memberErr) {
-  throw memberErr;
-}
+        if (memberErr) throw memberErr;
 
         const targetGroupIds = Array.from(
           new Set((members ?? []).map((m) => m.target_group_id))
         );
 
-        // 4) Get survey ids assigned to those target groups
+        // Step 4: Find survey ids assigned to those groups
         let surveyIdsFromGroups: string[] = [];
         if (targetGroupIds.length > 0) {
-          const stgRes = await (supabase as any)
+          const { data: stg, error: stgErr } = await supabase
             .from("survey_target_groups")
             .select("survey_id")
             .in("target_group_id", targetGroupIds);
 
-          const { data: stg, error: stgErr } = stgRes as {
-            data: { survey_id: string }[] | null;
-            error: { message: string } | null;
-          };
           if (stgErr) throw stgErr;
 
           surveyIdsFromGroups = Array.from(new Set((stg ?? []).map((x) => x.survey_id)));
         }
 
-        // 5) Fetch surveys (published + org target role) AND visible to this org
-        //    - either directly assigned by surveys.organization_id
-        //    - or assigned via survey_target_groups
-        const filters = [
-          `organization_id.eq.${myOrgId}`,
-          surveyIdsFromGroups.length ? `id.in.(${surveyIdsFromGroups.join(",")})` : "",
-        ]
-          .filter(Boolean)
-          .join(",");
+        // Step 5: Fetch surveys
+        // - Always include group-based surveys (even if org_id is NULL)
+        // - Additionally include organization_id surveys if org assigned
 
-        const surveyRes = await (supabase as any)
+        const baseSurveyQuery = supabase
           .from("surveys")
-          .select("id,title,description,deadline,created_at,organization_id,is_published,target_role,survey_semesters(semester_id)")
+          .select(
+            "id,title,description,deadline,created_at,is_published,target_role,survey_semesters(semester_id),organization_id"
+          )
           .eq("is_published", true)
           .eq("target_role", "organization")
-          .or(filters)
           .order("created_at", { ascending: false });
 
-        const { data: all, error: surveyErr } = surveyRes as {
-          data: SurveyRow[] | null;
-          error: { message: string } | null;
-        };
+        const orParts: string[] = [];
+
+        if (surveyIdsFromGroups.length > 0) {
+          // IMPORTANT: supabase OR syntax expects: id.in.(a,b,c)
+          orParts.push(`id.in.(${surveyIdsFromGroups.join(",")})`);
+        }
+
+        if (myOrgId) {
+          orParts.push(`organization_id.eq.${myOrgId}`);
+        }
+
+        // If neither exists, nothing to show
+        if (orParts.length === 0) {
+          setSurveys([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data: all, error: surveyErr } = await baseSurveyQuery.or(orParts.join(","));
 
         if (surveyErr) throw surveyErr;
 
-        const allSurveys = (all ?? []) as SurveyRow[];
+        // Step 6: Deduplicate by id
+        const map = new Map<string, SurveyRow>();
+        (all ?? []).forEach((s) => map.set(s.id, s as SurveyRow));
+        const allSurveys = Array.from(map.values());
 
-        // Your old rule: only show "school-wide" for org dashboard
-        // If you ALSO want org-specific + group-specific, delete this filter.
+        // KEEP/REMOVE THIS RULE:
+        // You currently hide surveys restricted to semesters.
+        // If org surveys should show even when semester restricted, delete this filter.
         const visible = allSurveys.filter((s) => {
           const restricted = (s.survey_semesters ?? []).map((x) => x.semester_id);
           return restricted.length === 0;
@@ -180,7 +171,7 @@ if (memberErr) {
 
         setSurveys(visible);
 
-        // Notifications
+        // Notifications (you might want to rename ensureStudentNotifications later)
         try {
           await notificationsService.ensureStudentNotifications(
             user.id,
@@ -202,14 +193,15 @@ if (memberErr) {
     };
 
     load();
-  }, [user?.id]);
-const cards = useMemo(() => {
-  return surveys.map((s) => ({
-    ...s,
-    deadlineText: getDeadlineText(s.deadline),
-    expired: isExpired(s.deadline),
-  }));
-}, [surveys]);
+  }, [user?.id, refetchNotifications]);
+
+  const cards = useMemo(() => {
+    return surveys.map((s) => ({
+      ...s,
+      deadlineText: getDeadlineText(s.deadline),
+      expired: isExpired(s.deadline),
+    }));
+  }, [surveys]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -277,7 +269,6 @@ const cards = useMemo(() => {
                     </Button>
                   ) : (
                     <Button asChild>
-                      {/* You currently reuse student route; keep it or make /organization/survey/:id */}
                       <Link to={`/student/survey/${s.id}`}>Answer Survey</Link>
                     </Button>
                   )}
