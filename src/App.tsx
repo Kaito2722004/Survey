@@ -32,6 +32,7 @@ import AlumniSurveyTaker from "./pages/alumni/AlumniSurveyTaker";
 import OrganizationDashboard from "./pages/organization/OrganizationDashboard";
 import AdminTargetGroups from "./pages/admin/AdminTargetGroups";
 import AdminOrgTargetManager from "./pages/admin/AdminOrgTargetManager";
+import AdminUsers from "./pages/admin/AdminUsers";
 
 const queryClient = new QueryClient();
 
@@ -224,6 +225,7 @@ const AppRoutes = () => (
     </AdminRoute>
   }
 />
+<Route path="/admin/users" element={<AdminUsers />} />
 
     {/* Student */}
     <Route
