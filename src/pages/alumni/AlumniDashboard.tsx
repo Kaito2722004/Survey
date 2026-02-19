@@ -10,63 +10,120 @@ type SurveyRow = {
   title: string;
   description: string | null;
   created_at: string;
-  semester_id: string | null;
-  teacher_id: string | null;
-  audience: string;
-  survey_semesters?: { semester_id: string }[] | null;
+  start_at: string | null;
+  end_at: string | null;
+  deadline: string | null;
+  is_published: boolean;
+  survey_type: string | null;
+  audience: string | null;
 };
+
+function isSurveyOpenNow(s: SurveyRow) {
+  const now = new Date();
+
+  const startAt = s.start_at ? new Date(s.start_at) : null;
+  const endAt = s.end_at ? new Date(s.end_at) : null;
+  const deadline = s.deadline ? new Date(s.deadline) : null;
+
+  if (startAt && now < startAt) return false;
+  if (endAt && now > endAt) return false;
+  if (deadline && now > deadline) return false;
+
+  return true;
+}
 
 export default function AlumniDashboard() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
 
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
+  const [myGroupId, setMyGroupId] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!user) return;
+
+    setLoading(true);
+    setSurveys([]);
+    setMyGroupId(null);
+
+    // 1) get my alumni group
+    const { data: mem, error: memErr } = await supabase
+      .from("alumni_group_members")
+      .select("alumni_group_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memErr) {
+      console.error(memErr);
+      setLoading(false);
+      return;
+    }
+
+    const groupId = mem?.alumni_group_id ?? null;
+    setMyGroupId(groupId);
+
+    if (!groupId) {
+      // not assigned -> no surveys
+      setLoading(false);
+      return;
+    }
+
+    // 2) get survey ids for this group
+    const { data: links, error: linkErr } = await supabase
+      .from("survey_alumni_groups")
+      .select("survey_id")
+      .eq("alumni_group_id", groupId);
+
+    if (linkErr) {
+      console.error(linkErr);
+      setSurveys([]);
+      setLoading(false);
+      return;
+    }
+
+    const surveyIds = (links ?? []).map((r: any) => r.survey_id).filter(Boolean) as string[];
+    if (surveyIds.length === 0) {
+      setSurveys([]);
+      setLoading(false);
+      return;
+    }
+
+    // 3) fetch published alumni surveys
+    const { data: sdata, error: sErr } = await supabase
+      .from("surveys")
+      .select("id,title,description,created_at,start_at,end_at,deadline,is_published,survey_type,audience")
+      .in("id", surveyIds)
+      .eq("is_published", true)
+      .eq("survey_type", "alumni")
+      .order("created_at", { ascending: false });
+
+    if (sErr) {
+      console.error(sErr);
+      setSurveys([]);
+      setLoading(false);
+      return;
+    }
+
+    const rows = (sdata ?? []) as SurveyRow[];
+
+    // optional: filter by time window
+    const visible = rows.filter(isSurveyOpenNow);
+
+    setSurveys(visible);
+    setLoading(false);
+  };
 
   useEffect(() => {
     if (!user) return;
-
-    const load = async () => {
-      setLoading(true);
-
-      // For alumni dashboard, we only show general surveys (no teacher_id) that are published
-      const { data: all, error: allErr } = await supabase
-        .from("surveys")
-        .select(
-          "id,title,description,created_at,semester_id,teacher_id,audience"
-        )
-        .eq("is_published", true)
-        .eq("audience", "alumni")
-        .order("created_at", { ascending: false });
-
-      if (allErr) {
-        console.error(allErr);
-        setSurveys([]);
-        setLoading(false);
-        return;
-      }
-
-      const allSurveys = (all ?? []) as SurveyRow[];
-
-      // ✅ Alumni: show ONLY general surveys (no teacher surveys)
-      // (Later we can filter by survey audience = 'alumni' once you add that column)
-      //const visible = allSurveys.filter((s) => !s.teacher_id);
-      //setSurveys(visible);
-      setSurveys(allSurveys);
-      setLoading(false);
-    };
-
     load();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const cards = useMemo(() => {
-    return surveys.map((s) => {
-      const restricted = (s.survey_semesters ?? []).map((x) => x.semester_id);
-
-      const badge =
-        restricted.length > 0 ? "General (Targeted)" : "General (School-wide)";
-
-      return { ...s, badge };
-    });
+    return surveys.map((s) => ({
+      ...s,
+      badge: "Alumni (Group)",
+    }));
   }, [surveys]);
 
   return (
@@ -74,26 +131,26 @@ export default function AlumniDashboard() {
       <Header />
       <main className="container py-8 space-y-6">
         <div>
-          <h1 className="text-3xl font-semibold text-foreground">
-            Alumni Dashboard
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            You can answer surveys shared for alumni.
-          </p>
+          <h1 className="text-3xl font-semibold text-foreground">Alumni Dashboard</h1>
+          <p className="mt-1 text-muted-foreground">You can answer surveys shared for your alumni group.</p>
         </div>
 
         <div className="card-elevated p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-sm text-muted-foreground">Account</div>
-              <div className="text-xl font-semibold">
-                {user?.name ?? "Alumni"}
-              </div>
+              <div className="text-xl font-semibold">{user?.name ?? "Alumni"}</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Showing published general surveys.
+                Group:{" "}
+                {myGroupId ? (
+                  <code>{myGroupId}</code>
+                ) : (
+                  <span className="text-destructive">Not assigned to any alumni group yet</span>
+                )}
               </div>
             </div>
-            <Button variant="outline" onClick={() => window.location.reload()}>
+
+            <Button variant="outline" onClick={load}>
               Refresh
             </Button>
           </div>
@@ -102,36 +159,32 @@ export default function AlumniDashboard() {
         <div className="card-elevated p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Available Surveys</h2>
-            {loading && (
-              <span className="text-sm text-muted-foreground">Loading...</span>
-            )}
+            {loading && <span className="text-sm text-muted-foreground">Loading...</span>}
           </div>
 
-          {!loading && cards.length === 0 && (
+          {!loading && !myGroupId && (
             <div className="text-sm text-muted-foreground">
-              No surveys available right now.
+              You are not assigned to an alumni group. Please contact admin to assign you (e.g. 2024–2025).
             </div>
+          )}
+
+          {!loading && myGroupId && cards.length === 0 && (
+            <div className="text-sm text-muted-foreground">No surveys available right now.</div>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
             {cards.map((s) => (
               <div key={s.id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm text-muted-foreground">General</div>
+                  <div className="text-sm text-muted-foreground">Alumni</div>
                   <span className="text-xs rounded-full border border-border px-2 py-0.5 text-muted-foreground">
                     {s.badge}
                   </span>
                 </div>
 
-                <div className="mt-1 text-lg font-semibold text-foreground">
-                  {s.title}
-                </div>
+                <div className="mt-1 text-lg font-semibold text-foreground">{s.title}</div>
 
-                {s.description && (
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    {s.description}
-                  </div>
-                )}
+                {s.description && <div className="mt-2 text-sm text-muted-foreground">{s.description}</div>}
 
                 <div className="mt-4">
                   <Button asChild>

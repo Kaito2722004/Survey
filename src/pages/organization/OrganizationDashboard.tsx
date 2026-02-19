@@ -24,6 +24,10 @@ type SurveyRow = {
   deadline: string | null;
   created_at?: string;
   survey_semesters?: { semester_id: string }[] | null;
+  // you select these too (not used in UI, but keep for safety)
+  is_published?: boolean;
+  target_role?: string | null;
+  organization_id?: string | null;
 };
 
 function getDeadlineText(deadline: string | null | undefined): string | null {
@@ -55,6 +59,7 @@ function isExpired(deadline: string | null | undefined): boolean {
 export default function OrganizationDashboard() {
   const { user } = useAuth();
   const { refetch: refetchNotifications } = useNotifications();
+
   const [loading, setLoading] = useState(true);
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
   const [showExpiredDialog, setShowExpiredDialog] = useState(false);
@@ -66,25 +71,32 @@ export default function OrganizationDashboard() {
     const load = async () => {
       setLoading(true);
 
+      // Helpful: group console output per load
+      console.groupCollapsed("[OrgDashboard] load()");
+      console.log("auth user.id:", user.id);
+
       try {
-        // Step 1/2: Load my profile once
+        // Step 1: Load my profile
         const { data: profile, error: profileErr } = await supabase
           .from("profiles")
           .select("email, role, organization_id")
           .eq("user_id", user.id)
           .single();
 
+        console.log("Step 1 profile:", profile, "error:", profileErr);
+
         if (profileErr || !profile) throw profileErr;
 
         const myEmail = (profile.email ?? "").toLowerCase();
         const myOrgId = profile.organization_id;
 
-        // (Optional) If you want to enforce only org role can view this dashboard:
-        // if (profile.role !== "organization") { setSurveys([]); setOrgName("Organization"); return; }
+        console.log("Derived myEmail:", myEmail);
+        console.log("Derived myOrgId:", myOrgId);
 
-        // Step 2b: Show org name if org assigned, otherwise "Not assigned"
+        // Step 2: Show org name
         if (!myOrgId) {
           setOrgName("Not assigned");
+          console.log("Step 2 orgName: Not assigned (no org id)");
         } else {
           const { data: orgRow, error: orgErr } = await supabase
             .from("organizations")
@@ -92,43 +104,59 @@ export default function OrganizationDashboard() {
             .eq("id", myOrgId)
             .maybeSingle();
 
+          console.log("Step 2 orgRow:", orgRow, "error:", orgErr);
+
           if (orgErr) throw orgErr;
           setOrgName(orgRow?.name ?? "Organization");
         }
 
-        // Step 3: Get my target group ids (by user id OR email fallback)
-        const { data: members, error: memberErr } = await supabase
-          .from("target_group_members")
-          .select("target_group_id")
-          .or(`member_user_id.eq.${user.id},member_email.eq.${myEmail}`);
+        // ✅ Step 3: Get my target group ids by organization_id (NEW)
+        let targetGroupIds: string[] = [];
+        if (!myOrgId) {
+          console.log(
+            "Step 3 skipped: no org_id, so cannot match target_group_members.organization_id",
+          );
+        } else {
+          const { data: members, error: memberErr } = await supabase
+            .from("target_group_members")
+            .select("target_group_id, organization_id")
+            .eq("organization_id", myOrgId);
 
-        if (memberErr) throw memberErr;
+          console.log("Step 3 members:", members, "error:", memberErr);
 
-        const targetGroupIds = Array.from(
-          new Set((members ?? []).map((m) => m.target_group_id))
-        );
+          if (memberErr) throw memberErr;
+
+          targetGroupIds = Array.from(
+            new Set((members ?? []).map((m) => m.target_group_id)),
+          );
+        }
+
+        console.log("Step 3 targetGroupIds:", targetGroupIds);
 
         // Step 4: Find survey ids assigned to those groups
         let surveyIdsFromGroups: string[] = [];
         if (targetGroupIds.length > 0) {
           const { data: stg, error: stgErr } = await supabase
             .from("survey_target_groups")
-            .select("survey_id")
+            .select("survey_id, target_group_id")
             .in("target_group_id", targetGroupIds);
+
+          console.log("Step 4 survey_target_groups:", stg, "error:", stgErr);
 
           if (stgErr) throw stgErr;
 
-          surveyIdsFromGroups = Array.from(new Set((stg ?? []).map((x) => x.survey_id)));
+          surveyIdsFromGroups = Array.from(
+            new Set((stg ?? []).map((x) => x.survey_id)),
+          );
         }
 
-        // Step 5: Fetch surveys
-        // - Always include group-based surveys (even if org_id is NULL)
-        // - Additionally include organization_id surveys if org assigned
+        console.log("Step 4 surveyIdsFromGroups:", surveyIdsFromGroups);
 
+        // Step 5: Fetch surveys
         const baseSurveyQuery = supabase
           .from("surveys")
           .select(
-            "id,title,description,deadline,created_at,is_published,target_role,survey_semesters(semester_id),organization_id"
+            "id,title,description,deadline,created_at,is_published,target_role,survey_semesters(semester_id),organization_id",
           )
           .eq("is_published", true)
           .eq("target_role", "organization")
@@ -137,58 +165,67 @@ export default function OrganizationDashboard() {
         const orParts: string[] = [];
 
         if (surveyIdsFromGroups.length > 0) {
-          // IMPORTANT: supabase OR syntax expects: id.in.(a,b,c)
+          // supabase OR expects: id.in.(a,b,c)
           orParts.push(`id.in.(${surveyIdsFromGroups.join(",")})`);
         }
 
+        // Optional: keep org-specific surveys if you use surveys.organization_id
         if (myOrgId) {
           orParts.push(`organization_id.eq.${myOrgId}`);
         }
 
-        // If neither exists, nothing to show
+        console.log("Step 5 orParts:", orParts);
+
         if (orParts.length === 0) {
+          console.log("Step 5: orParts empty -> setSurveys([])");
           setSurveys([]);
-          setLoading(false);
           return;
         }
 
-        const { data: all, error: surveyErr } = await baseSurveyQuery.or(orParts.join(","));
+        const { data: all, error: surveyErr } = await baseSurveyQuery.or(
+          orParts.join(","),
+        );
+
+        console.log("Step 5 surveys fetched:", all, "error:", surveyErr);
 
         if (surveyErr) throw surveyErr;
 
         // Step 6: Deduplicate by id
         const map = new Map<string, SurveyRow>();
-        (all ?? []).forEach((s) => map.set(s.id, s as SurveyRow));
+        (all ?? []).forEach((s: any) => map.set(s.id, s as SurveyRow));
         const allSurveys = Array.from(map.values());
 
-        // KEEP/REMOVE THIS RULE:
-        // You currently hide surveys restricted to semesters.
-        // If org surveys should show even when semester restricted, delete this filter.
+        console.log("Step 6 allSurveys (deduped):", allSurveys);
+
+        // Keep this rule (won't hide if semester_links = 0)
         const visible = allSurveys.filter((s) => {
           const restricted = (s.survey_semesters ?? []).map((x) => x.semester_id);
           return restricted.length === 0;
         });
 
+        console.log("Step 6 visible after semester filter:", visible);
+
         setSurveys(visible);
 
-        // Notifications (you might want to rename ensureStudentNotifications later)
+        // Notifications
         try {
           await notificationsService.ensureStudentNotifications(
             user.id,
-            visible.map((s) => ({ id: s.id, title: s.title, deadline: s.deadline }))
+            visible.map((s) => ({ id: s.id, title: s.title, deadline: s.deadline })),
           );
           refetchNotifications();
         } catch (e) {
           console.error("Ensure organization notifications:", e);
           toast.error(
-            "Notifications could not be created. Run the SQL in supabase-notification-insert-policy.sql in your Supabase SQL Editor."
+            "Notifications could not be created. Run the SQL in supabase-notification-insert-policy.sql in your Supabase SQL Editor.",
           );
         }
       } catch (e) {
-        console.error("OrganizationDashboard load:", e);
+        console.error("OrganizationDashboard load error:", e);
         setSurveys([]);
       } finally {
         setLoading(false);
+        console.groupEnd();
       }
     };
 
@@ -269,9 +306,11 @@ export default function OrganizationDashboard() {
                     </Button>
                   ) : (
                     <Button asChild>
+                      {/* Keeping your route as-is */}
                       <Link to={`/student/survey/${s.id}`}>Answer Survey</Link>
                     </Button>
                   )}
+
                   {s.deadlineText && (
                     <span className="text-xs text-red-600">{s.deadlineText}</span>
                   )}
