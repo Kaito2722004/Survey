@@ -74,7 +74,7 @@ const Signup = () => {
         password,
         name,
         accountType,
-        accountType === "student" ? semesterId : undefined,
+        accountType === "student" ? semesterId : undefined
       );
       toast.success("Account created. Check your email to confirm.");
       navigate("/login");
@@ -86,112 +86,142 @@ const Signup = () => {
   };
 
   return (
-    <div>
+    <div className="min-h-screen bg-background">
       <Header />
-      <form onSubmit={handleSubmit}>
-        <h1>
-          {accountType === "organization"
-            ? "Organization Sign up"
-            : "Student Sign up"}
-        </h1>
 
-        {/* Name */}
-        <div>
-          <Label htmlFor="name">
-            {accountType === "organization" ? "Organization Name" : "Full Name"}
-          </Label>
-          <div>
-            <User />
-            <Input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={accountType === "organization" ? "MCPA" : "John Doe"}
-            />
+      <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
+        <div className="w-full max-w-md animate-slide-up">
+          <div className="card-elevated p-8">
+            {/* Header */}
+            <div className="mb-8 text-center">
+              <h1 className="mb-2 text-2xl font-semibold text-foreground">
+                {accountType === "organization"
+                  ? "Organization Sign up"
+                  : "Student Sign up"}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Create your account to get started
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Name */}
+              <div className="space-y-2">
+                <Label htmlFor="name">
+                  {accountType === "organization"
+                    ? "Organization Name"
+                    : "Full Name"}
+                </Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={
+                      accountType === "organization" ? "MCPA" : "John Doe"
+                    }
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Email */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Account Type */}
+              <div className="space-y-2">
+                <Label htmlFor="accountType">Account Type</Label>
+                <select
+                  id="accountType"
+                  value={accountType}
+                  onChange={(e) => setAccountType(e.target.value as UserRole)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {ACCOUNT_TYPES.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Semester (student only) */}
+              {accountType === "student" && (
+                <div className="space-y-2">
+                  <Label htmlFor="semester">Semester</Label>
+                  <select
+                    id="semester"
+                    value={semesterId}
+                    onChange={(e) => setSemesterId(e.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">-- Select Semester --</option>
+                    {semesters.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {semesters.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Admin must create semesters first
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Password */}
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Creating account...
+                  </>
+                ) : (
+                  "Create Account"
+                )}
+              </Button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link to="/login" className="font-medium text-primary hover:underline">
+                Login
+              </Link>
+            </p>
           </div>
         </div>
-
-        {/* Email */}
-        <div>
-          <Label htmlFor="email">Email</Label>
-          <div>
-            <Mail />
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@email.com"
-            />
-          </div>
-        </div>
-
-        {/* Account Type */}
-        <div>
-          <Label htmlFor="accountType">Account Type</Label>
-          <select
-            id="accountType"
-            value={accountType}
-            onChange={(e) => setAccountType(e.target.value as UserRole)}
-          >
-            {ACCOUNT_TYPES.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Semester — only for Student */}
-        {accountType === "student" && (
-          <div>
-            <Label htmlFor="semester">Semester</Label>
-            <select
-              id="semester"
-              value={semesterId}
-              onChange={(e) => setSemesterId(e.target.value)}
-            >
-              <option value="">-- Select Semester --</option>
-              {semesters.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            {semesters.length === 0 && <p>Admin must create semesters first</p>}
-          </div>
-        )}
-
-        {/* Password */}
-        <div>
-          <Label htmlFor="password">Password</Label>
-          <div>
-            <Lock />
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
-          </div>
-        </div>
-
-        <Button type="submit" disabled={loading}>
-          {loading ? (
-            <>
-              <Loader2 className="animate-spin" />
-              Creating...
-            </>
-          ) : (
-            "Create Account"
-          )}
-        </Button>
-
-        <p>
-          Already have an account? <Link to="/login">Login</Link>
-        </p>
-      </form>
+      </main>
     </div>
   );
 };

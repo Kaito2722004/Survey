@@ -1,3 +1,4 @@
+// src/services/profiles.ts
 import { supabase } from "@/integrations/supabase/client";
 
 export type ProfileRow = {
@@ -6,7 +7,7 @@ export type ProfileRow = {
   email: string;
   name: string | null;
   is_admin: boolean;
-  role: string;
+  role: string | null;
   organization_id: string | null;
   created_at: string;
   updated_at: string;
@@ -29,19 +30,25 @@ export const profilesService = {
     email: string;
     name?: string | null;
     is_admin?: boolean;
-    role?: string;
+    role?: string | null; // ✅ allow null
     organization_id?: string | null;
   }) {
+    const insertRow: Record<string, any> = {
+      user_id: payload.user_id,
+      email: payload.email,
+      name: payload.name ?? null,
+      is_admin: payload.is_admin ?? false,
+      organization_id: payload.organization_id ?? null,
+    };
+
+    // ✅ Only set role if provided. This allows DB to keep NULL.
+    if (payload.role !== undefined) {
+      insertRow.role = payload.role; // can be null
+    }
+
     const { data, error } = await supabase
       .from("profiles")
-      .insert({
-        user_id: payload.user_id,
-        email: payload.email,
-        name: payload.name ?? null,
-        is_admin: payload.is_admin ?? false,
-        role: payload.role ?? "student",
-        organization_id: payload.organization_id ?? null,
-      })
+      .insert(insertRow)
       .select("*")
       .single();
 
@@ -51,16 +58,21 @@ export const profilesService = {
 
   async updateByUserId(
     userId: string,
-    patch: Partial<Pick<ProfileRow, "name" | "is_admin" | "role" | "organization_id">>,
+    patch: Partial<
+      Pick<ProfileRow, "name" | "is_admin" | "role" | "organization_id">
+    >,
   ) {
+    const updateRow: Record<string, any> = {};
+
+    if (patch.name !== undefined) updateRow.name = patch.name;
+    if (patch.is_admin !== undefined) updateRow.is_admin = patch.is_admin;
+    if (patch.role !== undefined) updateRow.role = patch.role; // ✅ can set null intentionally
+    if (patch.organization_id !== undefined)
+      updateRow.organization_id = patch.organization_id;
+
     const { data, error } = await supabase
       .from("profiles")
-      .update({
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.is_admin !== undefined ? { is_admin: patch.is_admin } : {}),
-        ...(patch.role !== undefined ? { role: patch.role } : {}),
-        ...(patch.organization_id !== undefined ? { organization_id: patch.organization_id } : {}),
-      })
+      .update(updateRow)
       .eq("user_id", userId)
       .select("*")
       .single();

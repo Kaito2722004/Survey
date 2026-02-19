@@ -1,3 +1,4 @@
+// src/contexts/AuthContext.tsx
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +18,7 @@ type AppUser = {
   email: string;
   name: string;
   isAdmin: boolean;
-  role: UserRole;
+  role: UserRole | null; // ✅ can be null
   semesterId: string | null;
 };
 
@@ -77,6 +78,20 @@ function clearSupabaseAuthStorage() {
   keysToRemove.forEach((k) => localStorage.removeItem(k));
 }
 
+// ✅ Decide whether a signup role should be stored immediately or left NULL for admin assignment later
+function shouldStoreRoleImmediately(role: UserRole) {
+  // Students need role right away (semester link depends on it)
+  // Admin role should never come from signup UI unless you explicitly allow it (safer)
+  if (role === "student") return true;
+
+  // For these roles you said: leave NULL so admin assigns later
+  if (role === "organization" || role === "teacher" || role === "stakeholder" || role === "alumni") {
+    return false;
+  }
+
+  return false;
+}
+
 async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
   const meta = sessionUser.user_metadata ?? {};
 
@@ -88,6 +103,8 @@ async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
 
   // Get or create profile
   const profile = await profilesService.getByUserId(sessionUser.id);
+
+  // ✅ If no profile exists, create one WITHOUT forcing a role.
   const ensured =
     profile ??
     (await profilesService.create({
@@ -95,24 +112,28 @@ async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
       email: sessionUser.email ?? "",
       name: metaName ?? sessionUser.email?.split("@")[0] ?? "User",
       is_admin: false,
-      role: metaRole ?? "student",
-    } as any));
+      // role: undefined  -> keep NULL
+      // If you want to trust metadata role ONLY when present, do:
+      ...(metaRole ? { role: metaRole } : {}),
+    }));
 
-  // Sync profile role with auth metadata role if they differ
-  if (!ensured.is_admin && metaRole && (ensured as any).role !== metaRole) {
+  // ✅ Optional: Only sync from metadata if you WANT to.
+  // Since your requirement is "admin assigns later", we should NOT auto-sync role unless it’s student.
+  if (!ensured.is_admin && metaRole === "student" && ensured.role !== "student") {
     try {
       const updated = await profilesService.updateByUserId(sessionUser.id, {
-        role: metaRole,
+        role: "student",
       });
-      (ensured as any).role = updated.role;
+      ensured.role = updated.role;
     } catch (e) {
       console.error("Failed to sync role:", e);
     }
   }
 
-  const role: UserRole = ensured.is_admin
-    ? "admin"
-    : ((metaRole ?? (ensured as any).role ?? "student") as UserRole);
+  // ✅ App user role:
+  // - admin if is_admin true
+  // - else from profile.role (can be null)
+  const role: UserRole | null = ensured.is_admin ? "admin" : (ensured.role as UserRole | null);
 
   // Auto-link student to semester if not already linked
   let studentLink =
@@ -120,12 +141,7 @@ async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
       ? await semesterStudentsService.getByStudent(sessionUser.id)
       : null;
 
-  if (
-    !ensured.is_admin &&
-    role === "student" &&
-    !studentLink &&
-    metaSemesterId
-  ) {
+  if (!ensured.is_admin && role === "student" && !studentLink && metaSemesterId) {
     try {
       studentLink = await semesterStudentsService.upsertStudentSemester(
         metaSemesterId,
@@ -146,9 +162,7 @@ async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
   };
 }
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -221,18 +235,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       clearSupabaseAuthStorage();
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       if (isRefreshTokenProblem(error)) {
         clearSupabaseAuthStorage();
         await supabase.auth.signOut();
-        throw new Error(
-          "Session expired. Please refresh the page and login again.",
-        );
+        throw new Error("Session expired. Please refresh the page and login again.");
       }
       if (error.message?.toLowerCase().includes("email not confirmed")) {
         throw new Error("Please confirm your email first (check your inbox).");
@@ -242,57 +251,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const signup = async (
-  email: string,
-  password: string,
-  name: string,
-  role: UserRole,
-  semesterId?: string
-) => {
-  // 1) Create auth user
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-
-  if (error) throw error;
-  if (!data.user) throw new Error("Signup failed: no user returned");
-
-  const userId = data.user.id;
-
-  // 2) Create/Update profile row (IMPORTANT)
-  // Use upsert so it works even if you already have DB trigger creating profiles.
-  const { error: pErr } = await supabase.from("profiles").upsert(
-    {
-      user_id: userId,
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole,
+    semesterId?: string,
+  ) => {
+    // 1) Create auth user (store metadata for name/semester only if you want)
+    const { data, error } = await supabase.auth.signUp({
       email,
-      name,
-      role, // ✅ "student" | "organization"
-      is_admin: false,
-      // for org users admin assigns later
-      organization_id: null,
-    },
-    { onConflict: "user_id" }
-  );
+      password,
+      options: {
+        data: {
+          name,
+          ...(role === "student" && semesterId ? { semester_id: semesterId } : {}),
+          // ✅ do NOT store role in metadata if admin should assign later
+          ...(role === "student" ? { role: "student" } : {}),
+        },
+      },
+    });
 
-  if (pErr) throw pErr;
+    if (error) throw error;
+    if (!data.user) throw new Error("Signup failed: no user returned");
 
-  // 3) If student => link to semester
-  if (role === "student") {
-    if (!semesterId) throw new Error("Semester is required for students");
+    const userId = data.user.id;
 
-    const { error: ssErr } = await (supabase as any)
-      .from("semester_students")
+    // 2) Create/Update profile row
+    // ✅ If role should be assigned later => store NULL (omit field or set null)
+    const storeRole = shouldStoreRoleImmediately(role) ? role : null;
+
+    const { error: pErr } = await supabase
+      .from("profiles")
       .upsert(
-        { semester_id: semesterId, student_user_id: userId },
-        { onConflict: "semester_id,student_user_id" }
+        {
+          user_id: userId,
+          email,
+          name,
+          is_admin: false,
+          organization_id: null,
+          role: storeRole, // ✅ null for non-student
+        },
+        { onConflict: "user_id" },
       );
 
-    if (ssErr) throw ssErr;
-  }
+    if (pErr) throw pErr;
 
-  // Done
-  return data.user;
-};
+    // 3) If student => link to semester
+    if (role === "student") {
+      if (!semesterId) throw new Error("Semester is required for students");
+
+      const { error: ssErr } = await supabase
+        .from("semester_students")
+        .upsert(
+          { semester_id: semesterId, student_user_id: userId },
+          { onConflict: "semester_id,student_user_id" },
+        );
+
+      if (ssErr) throw ssErr;
+    }
+  };
 
   const logout = async () => {
     const { error } = await supabase.auth.signOut();
