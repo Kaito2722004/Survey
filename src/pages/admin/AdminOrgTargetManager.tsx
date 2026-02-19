@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Building2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -34,6 +34,8 @@ type TargetGroupMemberRow = {
   target_group_id: string;
   member_user_id: string | null;
   member_email: string | null;
+  organization_id?: string | null;
+  organizations?: { name: string } | null;
 };
 
 /* =======================
@@ -56,12 +58,19 @@ export default function AdminOrgTargetManager() {
   // create group
   const [newGroupName, setNewGroupName] = useState("");
 
-  // add member (by selecting org-role user only)
-  const [selectedMemberUserId, setSelectedMemberUserId] = useState("");
+  // ✅ NEW: create organization
+  const [newOrgName, setNewOrgName] = useState("");
 
-  // onboarding: NULL role -> organization
+  // ✅ NEW: group member select = organization
+  const [selectedMemberOrgId, setSelectedMemberOrgId] = useState("");
+
+  // onboarding: NULL role -> organization (KEEP AS IS)
   const [assignSearch, setAssignSearch] = useState("");
   const [assignUserId, setAssignUserId] = useState("");
+
+  // ✅ NEW: assign org to org-role user
+  const [assignOrgToUserId, setAssignOrgToUserId] = useState("");
+  const [assignOrgId, setAssignOrgId] = useState("");
 
   /* =======================
      Load data
@@ -116,16 +125,18 @@ export default function AdminOrgTargetManager() {
   };
 
   const loadMembers = async (groupId: string) => {
+    // ✅ now we want org members -> join organizations(name)
     const { data, error } = await supabase
       .from("target_group_members")
-      .select("*")
-      .eq("target_group_id", groupId);
+      .select("id,target_group_id,organization_id,organizations(name)")
+      .eq("target_group_id", groupId)
+      .not("organization_id", "is", null);
 
     if (error) {
       toast.error(error.message);
       return;
     }
-    setMembers(data ?? []);
+    setMembers((data as any) ?? []);
   };
 
   useEffect(() => {
@@ -175,24 +186,42 @@ export default function AdminOrgTargetManager() {
     loadAll();
   };
 
-  // Add member by selecting a user_id (role=organization)
-  const addMemberByUserId = async () => {
-    if (!selectedGroupId) return toast.error("Select a group first");
-    if (!selectedMemberUserId) return toast.error("Select a member user");
+  // ✅ NEW: create organization
+  const createOrganization = async () => {
+    const name = newOrgName.trim();
+    if (!name) return toast.error("Organization name required");
 
-    const exists = members.some((m) => m.member_user_id === selectedMemberUserId);
-    if (exists) return toast.error("This user is already in the group");
+    const { error } = await supabase.from("organizations").insert({ name });
+    if (error) return toast.error(error.message);
+
+    toast.success("Organization created");
+    setNewOrgName("");
+    loadAll();
+  };
+
+  // ✅ NEW: Add group member by selecting organization_id
+  const addMemberByOrganization = async () => {
+    if (!selectedGroupId) return toast.error("Select a group first");
+    if (!selectedMemberOrgId) return toast.error("Select an organization");
+
+    const exists = members.some((m) => m.organization_id === selectedMemberOrgId);
+    if (exists) return toast.error("This organization is already in the group");
 
     const { error } = await supabase.from("target_group_members").insert({
       target_group_id: selectedGroupId,
-      member_user_id: selectedMemberUserId,
+      organization_id: selectedMemberOrgId,
+      // keep other member fields null
+      member_user_id: null,
       member_email: null,
+      rep_name: null,
+      rep_email: null,
+      rep_role: null,
     });
 
     if (error) return toast.error(error.message);
 
-    toast.success("Member added");
-    setSelectedMemberUserId("");
+    toast.success("Organization added to group");
+    setSelectedMemberOrgId("");
     loadMembers(selectedGroupId);
   };
 
@@ -208,6 +237,7 @@ export default function AdminOrgTargetManager() {
     loadMembers(selectedGroupId);
   };
 
+  // KEEP AS IS: NULL role -> organization
   const assignOrganizationRole = async () => {
     if (!assignUserId) return toast.error("Select a user");
 
@@ -223,6 +253,40 @@ export default function AdminOrgTargetManager() {
     loadAll();
   };
 
+  // ✅ NEW: assign organization_id to a user who already has role=organization
+  const assignOrganizationToOrgUser = async () => {
+    if (!assignOrgToUserId) return toast.error("Select an organization user");
+    if (!assignOrgId) return toast.error("Select organization");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ organization_id: assignOrgId })
+      .eq("user_id", assignOrgToUserId);
+
+    if (error) return toast.error(error.message);
+
+    toast.success("Assigned organization to user");
+    setAssignOrgToUserId("");
+    setAssignOrgId("");
+    loadAll();
+  };
+
+  const clearOrganizationForOrgUser = async () => {
+    if (!assignOrgToUserId) return toast.error("Select an organization user");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ organization_id: null })
+      .eq("user_id", assignOrgToUserId);
+
+    if (error) return toast.error(error.message);
+
+    toast.success("Cleared organization from user");
+    setAssignOrgToUserId("");
+    setAssignOrgId("");
+    loadAll();
+  };
+
   /* =======================
      UI
   ======================= */
@@ -233,7 +297,23 @@ export default function AdminOrgTargetManager() {
       <main className="container py-8 space-y-8">
         <h1 className="text-3xl font-semibold">Target Groups</h1>
 
-        {/* Create group */}
+        {/* ✅ NEW: Create organization */}
+        <div className="card-elevated p-6 space-y-3">
+          <h2 className="font-semibold">Create Organization</h2>
+          <div className="grid gap-2 md:grid-cols-3">
+            <Input
+              placeholder="Organization name"
+              value={newOrgName}
+              onChange={(e) => setNewOrgName(e.target.value)}
+            />
+            <Button onClick={createOrganization}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Organization
+            </Button>
+          </div>
+        </div>
+
+        {/* Create group (KEEP) */}
         <div className="card-elevated p-6 space-y-3">
           <h2 className="font-semibold">Create Group</h2>
           <Input
@@ -267,66 +347,106 @@ export default function AdminOrgTargetManager() {
             ))}
           </div>
 
-          {/* Members */}
+          {/* Members (CHANGED: org members) */}
           <div className="lg:col-span-2 card-elevated p-6 space-y-4">
-            <h2 className="font-semibold">Members</h2>
+            <h2 className="font-semibold">Members (Organizations)</h2>
 
-            {/* ✅ Only Select box (role=organization) */}
+            {/* ✅ select organization (not user) */}
             <div className="grid gap-2 md:grid-cols-3">
               <Select
-                value={selectedMemberUserId}
-                onValueChange={setSelectedMemberUserId}
+                value={selectedMemberOrgId}
+                onValueChange={setSelectedMemberOrgId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select organization user" />
+                  <SelectValue placeholder="Select organization" />
                 </SelectTrigger>
                 <SelectContent>
-                  {orgRoleUsers.map((u) => (
-                    <SelectItem key={u.user_id} value={u.user_id}>
-                      {(u.name ?? u.email) + " • " + u.email}
-                      {u.organization_id
-                        ? ` • ${orgNameById.get(u.organization_id) ?? "(unknown org)"}`
-                        : " • (no org)"}
+                  {organizations.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      <span className="inline-flex items-center gap-2">
+                        <Building2 className="h-4 w-4" />
+                        {o.name}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
 
-              <Button onClick={addMemberByUserId}>Add Member</Button>
+              <Button onClick={addMemberByOrganization}>Add to Group</Button>
             </div>
 
-            {members.map((m) => {
-              const fromUser =
-                m.member_user_id
-                  ? orgRoleUsers.find((u) => u.user_id === m.member_user_id) ??
-                    noRoleUsers.find((u) => u.user_id === m.member_user_id)
-                  : null;
-
-              return (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between rounded border px-3 py-2"
+            {members.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between rounded border px-3 py-2"
+              >
+                <span>{m.organizations?.name ?? "(unknown organization)"}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeMember(m.id)}
                 >
-                  <span>
-                    {fromUser?.email ??
-                      m.member_email ??
-                      m.member_user_id ??
-                      "(unknown member)"}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeMember(m.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              );
-            })}
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Onboarding: NULL role -> organization */}
+        {/* ✅ NEW: Assign organization to org-role users */}
+        <div className="card-elevated p-6 space-y-4">
+          <h2 className="font-semibold">Assign Organization to Organization Users</h2>
+          <p className="text-sm text-muted-foreground">
+            Select a user whose <b>role = organization</b>, then assign which{" "}
+            <b>Organization</b> they belong to.
+          </p>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Select value={assignOrgToUserId} onValueChange={setAssignOrgToUserId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select user (role = organization)" />
+              </SelectTrigger>
+              <SelectContent>
+                {orgRoleUsers.map((u) => (
+                  <SelectItem key={u.user_id} value={u.user_id}>
+                    {(u.name ?? u.email) + " • " + u.email}
+                    {u.organization_id
+                      ? ` • ${orgNameById.get(u.organization_id) ?? "(unknown org)"}`
+                      : " • (no org)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={assignOrgId} onValueChange={setAssignOrgId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select organization" />
+              </SelectTrigger>
+              <SelectContent>
+                {organizations.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={assignOrganizationToOrgUser} disabled={loading}>
+              Assign
+            </Button>
+            <Button
+              variant="outline"
+              onClick={clearOrganizationForOrgUser}
+              disabled={loading}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+
+        {/* Onboarding: NULL role -> organization (KEEP EXACTLY) */}
         <div className="card-elevated p-6 space-y-4">
           <h2 className="font-semibold">User Onboarding</h2>
           <p className="text-sm text-muted-foreground">

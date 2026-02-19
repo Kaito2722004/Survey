@@ -17,7 +17,14 @@ type TargetGroup = {
   description: string | null;
 };
 
-type SurveyType = "teacher" | "general" | "alumni" | "organization"; // ✅ NEW
+type AlumniGroup = {
+  id: string;
+  label: string;
+  start_year: number;
+  end_year: number;
+};
+
+type SurveyType = "teacher" | "general" | "alumni" | "organization";
 
 export default function AdminCreateSurvey() {
   const navigate = useNavigate();
@@ -34,9 +41,13 @@ export default function AdminCreateSurvey() {
   const [limitToSemesters, setLimitToSemesters] = useState(false);
   const [generalSemesterIds, setGeneralSemesterIds] = useState<string[]>([]);
 
-  // ✅ Organization (Target Groups)
+  // Organization (Target Groups)
   const [targetGroups, setTargetGroups] = useState<TargetGroup[]>([]);
   const [selectedTargetGroupIds, setSelectedTargetGroupIds] = useState<string[]>([]);
+
+  // ✅ Alumni (Alumni Groups)
+  const [alumniGroups, setAlumniGroups] = useState<AlumniGroup[]>([]);
+  const [selectedAlumniGroupId, setSelectedAlumniGroupId] = useState("");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -97,7 +108,7 @@ export default function AdminCreateSurvey() {
     })();
   }, [selectedSemesterId, surveyType]);
 
-  // ✅ Organization flow: load target groups
+  // Organization flow: load target groups
   useEffect(() => {
     if (surveyType !== "organization") return;
 
@@ -117,12 +128,33 @@ export default function AdminCreateSurvey() {
     })();
   }, [surveyType]);
 
+  // ✅ Alumni flow: load alumni groups
+  useEffect(() => {
+    if (surveyType !== "alumni") return;
+
+    (async () => {
+      const agRes = await supabase
+        .from("alumni_groups")
+        .select("id,label,start_year,end_year")
+        .order("start_year", { ascending: false });
+
+      if (agRes.error) {
+        toast.error(agRes.error.message);
+        setAlumniGroups([]);
+        return;
+      }
+
+      setAlumniGroups((agRes.data || []) as AlumniGroup[]);
+    })();
+  }, [surveyType]);
+
   // Reset irrelevant states when switching modes
   useEffect(() => {
     if (surveyType === "teacher") {
       setLimitToSemesters(false);
       setGeneralSemesterIds([]);
       setSelectedTargetGroupIds([]);
+      setSelectedAlumniGroupId("");
       return;
     }
 
@@ -131,6 +163,7 @@ export default function AdminCreateSurvey() {
       setSelectedTeacherId("");
       setTeachers([]);
       setSelectedTargetGroupIds([]);
+      setSelectedAlumniGroupId("");
       return;
     }
 
@@ -140,6 +173,7 @@ export default function AdminCreateSurvey() {
       setTeachers([]);
       setLimitToSemesters(false);
       setGeneralSemesterIds([]);
+      setSelectedAlumniGroupId("");
       return;
     }
 
@@ -150,6 +184,8 @@ export default function AdminCreateSurvey() {
     setLimitToSemesters(false);
     setGeneralSemesterIds([]);
     setSelectedTargetGroupIds([]);
+    // keep selectedAlumniGroupId? I reset to force correct choice each time:
+    setSelectedAlumniGroupId("");
   }, [surveyType]);
 
   const semesterNameById = useMemo(() => {
@@ -179,10 +215,17 @@ export default function AdminCreateSurvey() {
       if (!selectedTeacherId) return toast.error("Select a teacher.");
     }
 
-    // ✅ Organization (Target groups) validation
+    // Organization validation (unchanged)
     if (surveyType === "organization") {
       if (selectedTargetGroupIds.length === 0) {
         return toast.error("Select at least 1 target group.");
+      }
+    }
+
+    // ✅ Alumni validation (NEW)
+    if (surveyType === "alumni") {
+      if (!selectedAlumniGroupId) {
+        return toast.error("Select an alumni year group (e.g. 2024–2025).");
       }
     }
 
@@ -206,27 +249,43 @@ export default function AdminCreateSurvey() {
         return;
       }
 
-      // 2) Alumni Survey
+      // ✅ 2) Alumni Survey (FIXED)
       if (surveyType === "alumni") {
         const survey = await createSurvey(title.trim(), description.trim(), null, null, deadlineIso);
         if (!survey) throw new Error("Survey create returned null");
 
-        await supabase
+        // Update survey metadata to alumni type
+        const { error: upErr } = await supabase
           .from("surveys")
-          .update({ audience: "alumni", target_role: "alumni" })
+          .update({
+            survey_type: "alumni",
+            audience: "alumni",
+            target_role: "alumni",
+          })
           .eq("id", survey.id);
+
+        if (upErr) throw upErr;
+
+        // Link survey to alumni group
+        const { error: linkErr } = await supabase
+          .from("survey_alumni_groups")
+          .insert({
+            survey_id: survey.id,
+            alumni_group_id: selectedAlumniGroupId,
+          });
+
+        if (linkErr) throw linkErr;
 
         toast.success("Alumni survey created. Add questions now.");
         navigate(`/admin/surveys/${survey.id}/edit`);
         return;
       }
 
-      // 3) ✅ Organization Survey (Target Groups)
+      // 3) Organization Survey (unchanged)
       if (surveyType === "organization") {
         const survey = await createSurvey(title.trim(), description.trim(), null, null, deadlineIso);
         if (!survey) throw new Error("Survey create returned null");
 
-        // Mark it as organization-targeted
         const { error: upErr } = await supabase
           .from("surveys")
           .update({
@@ -237,7 +296,6 @@ export default function AdminCreateSurvey() {
 
         if (upErr) throw upErr;
 
-        // Insert mapping rows into survey_target_groups
         const rows = selectedTargetGroupIds.map((target_group_id) => ({
           survey_id: survey.id,
           target_group_id,
@@ -250,7 +308,6 @@ export default function AdminCreateSurvey() {
         if (linkErr) {
           console.error(linkErr);
           toast.error("Survey created, but linking target groups failed. Check table/policies.");
-          // still allow user to add questions
         }
 
         toast.success("Organization survey created. Add questions now.");
@@ -258,11 +315,10 @@ export default function AdminCreateSurvey() {
         return;
       }
 
-      // 4) General Survey (existing behavior)
+      // 4) General Survey (unchanged)
       const survey = await createSurvey(title.trim(), description.trim(), null, null, deadlineIso);
       if (!survey) throw new Error("Survey create returned null");
 
-      // Optional targeting: multi semesters
       if (limitToSemesters && generalSemesterIds.length > 0) {
         const rows = generalSemesterIds.map((semester_id) => ({
           survey_id: survey.id,
@@ -309,7 +365,7 @@ export default function AdminCreateSurvey() {
               : surveyType === "organization"
               ? "Select target groups to control which organizations can see the survey."
               : surveyType === "alumni"
-              ? "Surveys only for alumni (no semester/teacher)."
+              ? "Surveys only for alumni (no semester/teacher). Target one alumni year group."
               : "Create a school-wide survey, or target multiple semesters (optional)."}
           </p>
         </div>
@@ -345,7 +401,6 @@ export default function AdminCreateSurvey() {
                 </div>
               </label>
 
-              {/* ✅ NEW */}
               <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer">
                 <input
                   type="radio"
@@ -368,7 +423,7 @@ export default function AdminCreateSurvey() {
                 />
                 <div>
                   <div className="font-medium">Alumni Survey</div>
-                  <div className="text-xs text-muted-foreground">Only for alumni</div>
+                  <div className="text-xs text-muted-foreground">Target alumni year group</div>
                 </div>
               </label>
             </div>
@@ -432,9 +487,7 @@ export default function AdminCreateSurvey() {
                     if (!e.target.checked) setGeneralSemesterIds([]);
                   }}
                 />
-                <span className="text-sm">
-                  Limit this general survey to selected semesters (optional)
-                </span>
+                <span className="text-sm">Limit this general survey to selected semesters (optional)</span>
               </label>
 
               {limitToSemesters && (
@@ -462,8 +515,7 @@ export default function AdminCreateSurvey() {
 
                   {generalSemesterIds.length > 0 && (
                     <div className="text-xs text-muted-foreground">
-                      Targeting:{" "}
-                      {generalSemesterIds.map((id) => semesterNameById.get(id) || id).join(", ")}
+                      Targeting: {generalSemesterIds.map((id) => semesterNameById.get(id) || id).join(", ")}
                     </div>
                   )}
                 </div>
@@ -471,7 +523,7 @@ export default function AdminCreateSurvey() {
             </div>
           )}
 
-          {/* ✅ Organization fields */}
+          {/* Organization fields */}
           {surveyType === "organization" && (
             <div className="space-y-3">
               <div className="text-sm text-muted-foreground">
@@ -499,9 +551,7 @@ export default function AdminCreateSurvey() {
                         />
                         <div>
                           <div className="text-sm font-medium">{tg.name}</div>
-                          {tg.description && (
-                            <div className="text-xs text-muted-foreground">{tg.description}</div>
-                          )}
+                          {tg.description && <div className="text-xs text-muted-foreground">{tg.description}</div>}
                         </div>
                       </label>
                     ))}
@@ -509,11 +559,34 @@ export default function AdminCreateSurvey() {
                 )}
 
                 {selectedTargetGroupIds.length > 0 && (
-                  <div className="text-xs text-muted-foreground">
-                    Selected: {selectedTargetGroupIds.length} group(s)
-                  </div>
+                  <div className="text-xs text-muted-foreground">Selected: {selectedTargetGroupIds.length} group(s)</div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ✅ Alumni fields (NEW UI) */}
+          {surveyType === "alumni" && (
+            <div className="space-y-2">
+              <div className="font-medium">Alumni year group</div>
+              <select
+                className="w-full rounded-md border border-border bg-background px-3 py-2"
+                value={selectedAlumniGroupId}
+                onChange={(e) => setSelectedAlumniGroupId(e.target.value)}
+              >
+                <option value="">-- Select alumni group --</option>
+                {alumniGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label || `Alumni ${g.start_year}-${g.end_year}`}
+                  </option>
+                ))}
+              </select>
+
+              {alumniGroups.length === 0 && (
+                <div className="text-sm text-muted-foreground">
+                  No alumni groups yet. Create them in the Alumni Groups admin page (e.g. 2024–2025).
+                </div>
+              )}
             </div>
           )}
 
@@ -538,14 +611,8 @@ export default function AdminCreateSurvey() {
 
           <div className="space-y-2">
             <div className="font-medium">Deadline (optional)</div>
-            <Input
-              type="datetime-local"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              When the survey closes. Leave empty for no deadline.
-            </p>
+            <Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            <p className="text-xs text-muted-foreground">When the survey closes. Leave empty for no deadline.</p>
           </div>
 
           <div className="flex gap-2 flex-wrap">

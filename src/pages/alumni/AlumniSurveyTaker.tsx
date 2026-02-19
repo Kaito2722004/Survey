@@ -11,16 +11,23 @@ import { Survey } from "@/types/survey";
 import { Header } from "@/components/layout/Header";
 
 type SurveyAccessRow = {
+  id: string;
   is_published: boolean;
-  teacher_id: string | null;
-  survey_semesters?: { semester_id: string }[] | null;
+  survey_type: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  deadline: string | null;
 };
 
-function canAlumniAccessSurvey(survey: SurveyAccessRow) {
-  if (!survey.is_published) return false;
+function isSurveyOpenNow(s: SurveyAccessRow) {
+  const now = new Date();
+  const startAt = s.start_at ? new Date(s.start_at) : null;
+  const endAt = s.end_at ? new Date(s.end_at) : null;
+  const deadline = s.deadline ? new Date(s.deadline) : null;
 
-  // ✅ For now: Alumni can answer ONLY general surveys (no teacher survey)
-  if (survey.teacher_id) return false;
+  if (startAt && now < startAt) return false;
+  if (endAt && now > endAt) return false;
+  if (deadline && now > deadline) return false;
 
   return true;
 }
@@ -48,10 +55,10 @@ export default function AlumniSurveyTaker() {
       setIsLoadingSurvey(true);
       setIsAllowed(null);
 
-      // Only check survey publish + general/teacher
+      // 1) load basic survey access info
       const { data: surveyRow, error: sErr } = await supabase
         .from("surveys")
-        .select("is_published,teacher_id,survey_semesters(semester_id)")
+        .select("id,is_published,survey_type,start_at,end_at,deadline")
         .eq("id", id)
         .maybeSingle();
 
@@ -63,14 +70,61 @@ export default function AlumniSurveyTaker() {
         return;
       }
 
-      const allowed = canAlumniAccessSurvey(surveyRow as SurveyAccessRow);
-      setIsAllowed(allowed);
+      const access = surveyRow as SurveyAccessRow;
 
-      if (!allowed) {
-        setSurvey(null);
+      // must be published + alumni type + open now
+      if (!access.is_published || access.survey_type !== "alumni" || !isSurveyOpenNow(access)) {
+        setIsAllowed(false);
         setIsLoadingSurvey(false);
         return;
       }
+
+      // 2) get my alumni group
+      const { data: mem, error: memErr } = await supabase
+        .from("alumni_group_members")
+        .select("alumni_group_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (memErr) {
+        console.error(memErr);
+        toast.error("Failed to check alumni group.");
+        setIsAllowed(false);
+        setIsLoadingSurvey(false);
+        return;
+      }
+
+      const myGroupId = mem?.alumni_group_id ?? null;
+      if (!myGroupId) {
+        setIsAllowed(false);
+        setIsLoadingSurvey(false);
+        return;
+      }
+
+      // 3) check link survey -> my group
+      const { data: link, error: linkErr } = await supabase
+        .from("survey_alumni_groups")
+        .select("id")
+        .eq("survey_id", id)
+        .eq("alumni_group_id", myGroupId)
+        .maybeSingle();
+
+      if (linkErr) {
+        console.error(linkErr);
+        toast.error("Failed to check survey access.");
+        setIsAllowed(false);
+        setIsLoadingSurvey(false);
+        return;
+      }
+
+      if (!link) {
+        setIsAllowed(false);
+        setIsLoadingSurvey(false);
+        return;
+      }
+
+      // Allowed ✅
+      setIsAllowed(true);
 
       const surveyData = await getSurveyPublic(id);
       setSurvey(surveyData);
@@ -113,8 +167,7 @@ export default function AlumniSurveyTaker() {
       if (Array.isArray(ans)) {
         if (ans.length === 0) newErrors[q.id] = "This question is required";
       } else {
-        if (!ans || ans.trim() === "")
-          newErrors[q.id] = "This question is required";
+        if (!ans || ans.trim() === "") newErrors[q.id] = "This question is required";
       }
     });
 
@@ -176,11 +229,9 @@ export default function AlumniSurveyTaker() {
                 <ShieldAlert className="h-8 w-8 text-destructive" />
               </div>
             </div>
-            <h1 className="text-xl font-semibold text-foreground">
-              Not allowed
-            </h1>
+            <h1 className="text-xl font-semibold text-foreground">Not allowed</h1>
             <p className="mt-2 text-muted-foreground">
-              This survey is not for you (or it is not published).
+              This survey is not for you (not published, closed, or not assigned to your alumni group).
             </p>
           </div>
         </div>
@@ -199,12 +250,8 @@ export default function AlumniSurveyTaker() {
                 <FileText className="h-8 w-8 text-muted-foreground" />
               </div>
             </div>
-            <h1 className="mb-2 text-xl font-semibold text-foreground">
-              Survey Not Found
-            </h1>
-            <p className="text-muted-foreground">
-              This survey doesn't exist or has been deleted.
-            </p>
+            <h1 className="mb-2 text-xl font-semibold text-foreground">Survey Not Found</h1>
+            <p className="text-muted-foreground">This survey doesn't exist or has been deleted.</p>
           </div>
         </div>
       </div>
@@ -223,12 +270,8 @@ export default function AlumniSurveyTaker() {
                   <CheckCircle2 className="h-8 w-8 text-success" />
                 </div>
               </div>
-              <h1 className="mb-2 text-2xl font-semibold text-foreground">
-                Thank You!
-              </h1>
-              <p className="text-muted-foreground">
-                Your response has been recorded successfully.
-              </p>
+              <h1 className="mb-2 text-2xl font-semibold text-foreground">Thank You!</h1>
+              <p className="text-muted-foreground">Your response has been recorded successfully.</p>
             </div>
           </div>
         </div>
@@ -247,16 +290,10 @@ export default function AlumniSurveyTaker() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <FileText className="h-4 w-4 text-primary-foreground" />
               </div>
-              <span className="text-sm font-medium text-muted-foreground">
-                FormFlow
-              </span>
+              <span className="text-sm font-medium text-muted-foreground">FormFlow</span>
             </div>
-            <h1 className="text-2xl font-semibold text-foreground">
-              {survey.title}
-            </h1>
-            {survey.description && (
-              <p className="mt-2 text-muted-foreground">{survey.description}</p>
-            )}
+            <h1 className="text-2xl font-semibold text-foreground">{survey.title}</h1>
+            {survey.description && <p className="mt-2 text-muted-foreground">{survey.description}</p>}
             <p className="mt-4 text-sm text-muted-foreground">
               <span className="text-destructive">*</span> Required
             </p>
@@ -265,16 +302,10 @@ export default function AlumniSurveyTaker() {
 
         <div className="space-y-4">
           {survey.questions.map((question, index) => (
-            <div
-              key={question.id}
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
+            <div key={question.id} style={{ animationDelay: `${index * 100}ms` }}>
               <QuestionRenderer
                 question={question}
-                value={
-                  answers[question.id] ||
-                  (question.type === ("checkbox" as any) ? [] : "")
-                }
+                value={answers[question.id] || (question.type === ("checkbox" as any) ? [] : "")}
                 onChange={(value) => handleAnswerChange(question.id, value)}
                 error={errors[question.id]}
               />
@@ -297,9 +328,7 @@ export default function AlumniSurveyTaker() {
           </div>
         ) : (
           <div className="card-elevated p-8 text-center mt-6">
-            <p className="text-muted-foreground">
-              This survey has no questions yet.
-            </p>
+            <p className="text-muted-foreground">This survey has no questions yet.</p>
           </div>
         )}
       </div>
