@@ -20,7 +20,7 @@ export default function AdminDashboard() {
       try {
         const mySurveys = await surveysService.getByAdminUser(user.id);
         const pastDeadline = mySurveys.filter(
-          (s) => s.deadline && new Date(s.deadline) < new Date(),
+          (s) => s.deadline && new Date(s.deadline) < new Date()
         );
         await notificationsService.ensureAdminNotifications(
           user.id,
@@ -28,13 +28,13 @@ export default function AdminDashboard() {
             id: s.id,
             title: s.title,
             deadline: s.deadline,
-          })),
+          }))
         );
         refetchNotifications();
       } catch (e) {
         console.error("Ensure admin notifications:", e);
         toast.error(
-          "Notifications could not be created. Run the SQL in supabase-notification-insert-policy.sql in your Supabase SQL Editor.",
+          "Notifications could not be created. Run the SQL in supabase-notification-insert-policy.sql in your Supabase SQL Editor."
         );
       }
     };
@@ -94,7 +94,6 @@ export default function AdminDashboard() {
             </Button>
           </div>
 
-          {/* ✅ UPDATED: Target Groups + Organization Assignments */}
           <div className="card-elevated p-6">
             <h3 className="text-lg font-semibold">4) Target Groups</h3>
             <p className="mt-2 flex-1 text-sm text-muted-foreground">
@@ -130,6 +129,18 @@ export default function AdminDashboard() {
             </p>
             <Button className="mt-4" onClick={() => navigate("/admin/surveys")}>
               View Surveys
+            </Button>
+          </div>
+
+          {/* ✅ NEW: User Role Management */}
+          <div className="card-elevated p-6">
+            <h3 className="text-lg font-semibold">7) Users & Roles</h3>
+            <p className="mt-2 flex-1 text-sm text-muted-foreground">
+              View all users and assign roles (fix <code>role = NULL</code>),
+              separated by Student / Alumni / Organization.
+            </p>
+            <Button className="mt-4" onClick={() => navigate("/admin/users")}>
+              Manage Users
             </Button>
           </div>
         </div>
