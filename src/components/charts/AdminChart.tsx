@@ -4,7 +4,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
 
-
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -51,7 +50,11 @@ function parseOptionsAny(options: any): string[] {
     try {
       const parsed = JSON.parse(s);
       if (Array.isArray(parsed)) return parsed.map(String);
-      if (parsed && typeof parsed === "object" && Array.isArray((parsed as any).options)) {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        Array.isArray((parsed as any).options)
+      ) {
         return (parsed as any).options.map(String);
       }
     } catch {
@@ -109,7 +112,12 @@ function isAbortError(err: unknown) {
 }
 
 // ✅ Category guesser for Sem+Teacher charts
-type RatingCategory = "teaching" | "communication" | "knowledge" | "support" | "overall";
+type RatingCategory =
+  | "teaching"
+  | "communication"
+  | "knowledge"
+  | "support"
+  | "overall";
 
 function guessCategory(title: string): RatingCategory {
   const t = title.toLowerCase();
@@ -122,7 +130,8 @@ function guessCategory(title: string): RatingCategory {
     t.includes("engage") ||
     t.includes("delivery") ||
     t.includes("pace")
-  ) return "teaching";
+  )
+    return "teaching";
 
   if (
     t.includes("communicat") ||
@@ -131,7 +140,8 @@ function guessCategory(title: string): RatingCategory {
     t.includes("question") ||
     t.includes("interaction") ||
     t.includes("discussion")
-  ) return "communication";
+  )
+    return "communication";
 
   if (
     t.includes("knowledge") ||
@@ -140,7 +150,8 @@ function guessCategory(title: string): RatingCategory {
     t.includes("content") ||
     t.includes("subject") ||
     t.includes("concept")
-  ) return "knowledge";
+  )
+    return "knowledge";
 
   if (
     t.includes("support") ||
@@ -148,7 +159,8 @@ function guessCategory(title: string): RatingCategory {
     t.includes("available") ||
     t.includes("assist") ||
     t.includes("guidance")
-  ) return "support";
+  )
+    return "support";
 
   return "overall";
 }
@@ -198,7 +210,8 @@ export default function AdminChart() {
 
         // 2) Questions
         // ✅ If your DB HAS category column, use this:
-        const qSelectWithCategory = "id,title,type,options,category,order_index";
+        const qSelectWithCategory =
+          "id,title,type,options,category,order_index";
 
         // ✅ If your DB does NOT have category column, use this instead:
         const qSelectNoCategory = "id,title,type,options,order_index";
@@ -249,7 +262,9 @@ export default function AdminChart() {
       } catch (e: unknown) {
         if (isAbortError(e)) return;
         console.error(e);
-        toast.error(String((e as any)?.message ?? e ?? "Failed to load charts"));
+        toast.error(
+          String((e as any)?.message ?? e ?? "Failed to load charts"),
+        );
         if (alive) {
           setSurvey(null);
           setQuestions([]);
@@ -294,7 +309,9 @@ export default function AdminChart() {
         if (!rating) continue;
 
         // ✅ Use DB category if available, otherwise guess from title
-        const category = q.category ? String(q.category).toLowerCase() : guessCategory(q.title);
+        const category = q.category
+          ? String(q.category).toLowerCase()
+          : guessCategory(q.title);
 
         rows.push({
           questionId: q.id,
@@ -318,7 +335,6 @@ export default function AdminChart() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-       
         <main className="container flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </main>
@@ -329,7 +345,6 @@ export default function AdminChart() {
   if (!survey) {
     return (
       <div className="min-h-screen bg-background">
-        
         <main className="container py-10">
           <Button variant="ghost" onClick={() => navigate("/admin/surveys")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -344,21 +359,22 @@ export default function AdminChart() {
 
   return (
     <div className="min-h-screen bg-background">
-    
-
-  
-
       {/* ✅ SEM+TEACHER */}
       {isSemTeacherSurvey ? (
-        <SurveyAnalytics title={`Survey Analytics — ${survey.title}`} data={semTeacherAnalyticsData} />
+        <SurveyAnalytics
+          title={`Survey Analytics — ${survey.title}`}
+          data={semTeacherAnalyticsData}
+        />
       ) : (
         /* ✅ GENERAL */
         <main className="container py-8 space-y-6">
           <div>
-            <h1 className="text-3xl font-semibold text-foreground">Survey Charts</h1>
+            <h1 className="text-3xl font-semibold text-foreground">
+              Survey Charts
+            </h1>
             <p className="mt-1 text-muted-foreground">
-              General chart (MCQ/Dropdown/Checkboxes) counts selected options using{" "}
-              <code>answers[question.id]</code>.
+              General chart (MCQ/Dropdown/Checkboxes) counts selected options
+              using <code>answers[question.id]</code>.
             </p>
           </div>
 
