@@ -29,7 +29,6 @@ import {
   SlidersHorizontal,
   X,
   FileText,
-  ChevronRight,
   RefreshCw,
 } from "lucide-react";
 
@@ -43,6 +42,9 @@ type SurveyRow = {
   created_at: string;
   section_id: string | null;
   teacher_id: string | null;
+  target_role: string | null;
+  audience: string | null;
+  survey_type: string | null;
   start_at?: string | null;
   end_at?: string | null;
 };
@@ -55,7 +57,12 @@ type SectionRow = {
   specialization: string;
 };
 
-type SurveyKindFilter = "all" | "section_tr" | "general";
+type SurveyKindFilter =
+  | "all"
+  | "section_tr"
+  | "general"
+  | "organization"
+  | "alumni";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function sectionLabel(s: SectionRow) {
@@ -82,6 +89,42 @@ function dateOnlyToRange(val: string): { start: Date; end: Date } | null {
     start: new Date(y, m - 1, d, 0, 0, 0, 0),
     end: new Date(y, m - 1, d, 23, 59, 59, 999),
   };
+}
+
+function getSurveyKind(s: SurveyRow): SurveyKindFilter {
+  if (s.survey_type === "alumni" || s.audience === "alumni") return "alumni";
+  if (s.target_role === "organization" || s.audience === "target_group")
+    return "organization";
+  if (s.section_id && s.teacher_id) return "section_tr";
+  return "general";
+}
+
+function getSurveyKindLabel(kind: SurveyKindFilter): string {
+  switch (kind) {
+    case "section_tr":
+      return "Section + Teacher";
+    case "general":
+      return "General";
+    case "organization":
+      return "Organization";
+    case "alumni":
+      return "Alumni";
+    default:
+      return "All";
+  }
+}
+
+function getSurveyKindBadgeClass(kind: SurveyKindFilter): string {
+  switch (kind) {
+    case "section_tr":
+      return "bg-blue-50 text-blue-700 border-blue-200";
+    case "organization":
+      return "bg-purple-50 text-purple-700 border-purple-200";
+    case "alumni":
+      return "bg-orange-50 text-orange-700 border-orange-200";
+    default:
+      return "bg-muted/50 text-muted-foreground";
+  }
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -152,14 +195,13 @@ export default function AdminSurveys() {
     }
   };
 
-  // ── KEY FIX: count responses live via join instead of stale response_count column ──
   const loadSurveys = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,created_at,section_id,teacher_id,start_at,end_at,survey_responses(count)",
+          "id,title,description,is_published,created_at,section_id,teacher_id,target_role,audience,survey_type,start_at,end_at,survey_responses(count)",
         )
         .order("created_at", { ascending: false });
 
@@ -173,9 +215,11 @@ export default function AdminSurveys() {
         created_at: row.created_at,
         section_id: row.section_id,
         teacher_id: row.teacher_id,
+        target_role: row.target_role,
+        audience: row.audience,
+        survey_type: row.survey_type,
         start_at: row.start_at,
         end_at: row.end_at,
-        // Supabase returns the join count as [{ count: n }]
         response_count: row.survey_responses?.[0]?.count ?? 0,
       }));
 
@@ -243,9 +287,8 @@ export default function AdminSurveys() {
     const fromRange = dateOnlyToRange(fromDT);
     const toRange = dateOnlyToRange(toDT);
     return surveys.filter((x) => {
-      const isSectionTr = !!x.section_id && !!x.teacher_id;
-      if (kind === "section_tr" && !isSectionTr) return false;
-      if (kind === "general" && isSectionTr) return false;
+      const surveyKind = getSurveyKind(x);
+      if (kind !== "all" && surveyKind !== kind) return false;
       if (sectionId !== "all" && x.section_id !== sectionId) return false;
       const created = new Date(x.created_at);
       if (fromRange && created < fromRange.start) return false;
@@ -272,6 +315,14 @@ export default function AdminSurveys() {
     (acc, s) => acc + (s.response_count ?? 0),
     0,
   );
+
+  const KIND_FILTERS: SurveyKindFilter[] = [
+    "all",
+    "section_tr",
+    "general",
+    "organization",
+    "alumni",
+  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -338,27 +389,21 @@ export default function AdminSurveys() {
             </div>
 
             {/* Kind pills */}
-            <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1 text-sm">
-              {(["all", "section_tr", "general"] as SurveyKindFilter[]).map(
-                (k) => (
-                  <button
-                    key={k}
-                    onClick={() => setKind(k)}
-                    className={[
-                      "px-3 py-1.5 font-medium transition-colors",
-                      kind === k
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-                    ].join(" ")}
-                  >
-                    {k === "all"
-                      ? "All"
-                      : k === "section_tr"
-                        ? "Section + Teacher"
-                        : "General"}
-                  </button>
-                ),
-              )}
+            <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1 text-sm flex-wrap">
+              {KIND_FILTERS.map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setKind(k)}
+                  className={[
+                    "px-3 py-1.5 rounded-md font-medium transition-colors",
+                    kind === k
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                  ].join(" ")}
+                >
+                  {getSurveyKindLabel(k)}
+                </button>
+              ))}
             </div>
 
             {/* Filter toggle */}
@@ -487,7 +532,7 @@ export default function AdminSurveys() {
         ) : (
           <div className="space-y-3">
             {filtered.map((s) => {
-              const isSectionTr = !!s.section_id && !!s.teacher_id;
+              const surveyKind = getSurveyKind(s);
               const secLabel = s.section_id
                 ? (sectionLabelById.get(s.section_id) ?? s.section_id)
                 : null;
@@ -517,10 +562,15 @@ export default function AdminSurveys() {
                       >
                         {s.is_published ? "Published" : "Draft"}
                       </span>
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full border bg-muted/50 text-muted-foreground">
-                        {isSectionTr ? "Section + Teacher" : "General"}
+                      <span
+                        className={[
+                          "text-[11px] font-medium px-2 py-0.5 rounded-full border",
+                          getSurveyKindBadgeClass(surveyKind),
+                        ].join(" ")}
+                      >
+                        {getSurveyKindLabel(surveyKind)}
                       </span>
-                      {isSectionTr && secLabel && (
+                      {surveyKind === "section_tr" && secLabel && (
                         <span className="text-[11px] px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
                           {secLabel}
                         </span>
