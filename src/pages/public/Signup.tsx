@@ -1,64 +1,25 @@
-import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Header } from "@/components/layout/Header";
 import { toast } from "sonner";
-import { Loader2, Mail, Lock, User } from "lucide-react";
-import type { UserRole } from "@/contexts/AuthContext";
-
-type Semester = {
-  id: string;
-  name: string;
-};
-
-const ACCOUNT_TYPES: { value: UserRole; label: string }[] = [
-  { value: "student", label: "Student" },
-  { value: "organization", label: "Organization" },
-];
+import { Loader2, Mail, Lock, User, CheckCircle2 } from "lucide-react";
 
 const Signup = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [accountType, setAccountType] = useState<UserRole>("student");
-  const [semesterId, setSemesterId] = useState("");
-  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(false);
-
-  const { signup } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const loadSemesters = async () => {
-      const { data, error } = await supabase
-        .from("semesters")
-        .select("id, name")
-        .order("created_at");
-
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      setSemesters(data ?? []);
-    };
-
-    loadSemesters();
-  }, []);
+  const [submitted, setSubmitted] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!name || !email || !password) {
       toast.error("Please fill in all fields");
-      return;
-    }
-
-    if (accountType === "student" && !semesterId) {
-      toast.error("Please select a semester");
       return;
     }
 
@@ -69,21 +30,78 @@ const Signup = () => {
 
     try {
       setLoading(true);
-      await signup(
-        email,
-        password,
+
+      // Check if email already requested or exists
+      const { data: existing } = await supabase
+        .from("organization_requests")
+        .select("id, status")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (existing) {
+        if (existing.status === "pending") {
+          toast.error("A request with this email is already pending approval.");
+        } else if (existing.status === "approved") {
+          toast.error("This email is already approved. Try logging in.");
+        } else {
+          toast.error("This email was rejected. Contact admin.");
+        }
+        return;
+      }
+
+      // Insert pending request — store plain password (admin will use it to create auth account)
+      // In production, consider a more secure handoff mechanism
+      const { error } = await supabase.from("organization_requests").insert({
         name,
-        accountType,
-        accountType === "student" ? semesterId : undefined
-      );
-      toast.success("Account created. Check your email to confirm.");
-      navigate("/login");
+        email,
+        password_hash: password, // admin will use this when creating the account
+        status: "pending",
+      });
+
+      if (error) throw error;
+
+      setSubmitted(true);
     } catch (err: any) {
-      toast.error(err.message ?? "Signup failed");
+      toast.error(err.message ?? "Signup failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
+  if (submitted) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
+          <div className="w-full max-w-md animate-slide-up">
+            <div className="card-elevated p-8 text-center">
+              <div className="mb-4 flex justify-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                  <CheckCircle2 className="h-8 w-8 text-primary" />
+                </div>
+              </div>
+              <h1 className="mb-2 text-2xl font-semibold text-foreground">
+                Request Submitted
+              </h1>
+              <p className="text-muted-foreground">
+                Your organization account request has been submitted. An admin
+                will review and approve it shortly. You'll receive a
+                confirmation email once approved.
+              </p>
+              <div className="mt-6">
+                <Link
+                  to="/login"
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  Back to Login
+                </Link>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -92,35 +110,27 @@ const Signup = () => {
       <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
         <div className="w-full max-w-md animate-slide-up">
           <div className="card-elevated p-8">
-            {/* Header */}
             <div className="mb-8 text-center">
               <h1 className="mb-2 text-2xl font-semibold text-foreground">
-                {accountType === "organization"
-                  ? "Organization Sign up"
-                  : "Student Sign up"}
+                Organization Sign Up
               </h1>
               <p className="text-sm text-muted-foreground">
-                Create your account to get started
+                Submit a request to create an organization account. An admin
+                will review and approve it.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Name */}
+              {/* Organization Name */}
               <div className="space-y-2">
-                <Label htmlFor="name">
-                  {accountType === "organization"
-                    ? "Organization Name"
-                    : "Full Name"}
-                </Label>
+                <Label htmlFor="name">Organization Name</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder={
-                      accountType === "organization" ? "MCPA" : "John Doe"
-                    }
+                    placeholder="e.g. MCPA"
                     className="pl-10"
                   />
                 </div>
@@ -136,54 +146,11 @@ const Signup = () => {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
+                    placeholder="org@example.com"
                     className="pl-10"
                   />
                 </div>
               </div>
-
-              {/* Account Type */}
-              <div className="space-y-2">
-                <Label htmlFor="accountType">Account Type</Label>
-                <select
-                  id="accountType"
-                  value={accountType}
-                  onChange={(e) => setAccountType(e.target.value as UserRole)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  {ACCOUNT_TYPES.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Semester (student only) */}
-              {accountType === "student" && (
-                <div className="space-y-2">
-                  <Label htmlFor="semester">Semester</Label>
-                  <select
-                    id="semester"
-                    value={semesterId}
-                    onChange={(e) => setSemesterId(e.target.value)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">-- Select Semester --</option>
-                    {semesters.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {semesters.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Admin must create semesters first
-                    </p>
-                  )}
-                </div>
-              )}
 
               {/* Password */}
               <div className="space-y-2">
@@ -197,25 +164,37 @@ const Signup = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     className="pl-10"
+                    autoComplete="new-password"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Minimum 6 characters
+                </p>
               </div>
 
-              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+              <Button
+                type="submit"
+                className="w-full"
+                size="lg"
+                disabled={loading}
+              >
                 {loading ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Creating account...
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
                   </>
                 ) : (
-                  "Create Account"
+                  "Submit Request"
                 )}
               </Button>
             </form>
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link to="/login" className="font-medium text-primary hover:underline">
+              <Link
+                to="/login"
+                className="font-medium text-primary hover:underline"
+              >
                 Login
               </Link>
             </p>

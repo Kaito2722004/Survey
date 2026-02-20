@@ -140,6 +140,12 @@ export const Header = () => {
                     label="Create Survey"
                     active={is("/admin/create-survey")}
                   />
+                  <NavLink
+                    to="/admin/org-requests"
+                    icon={Users}
+                    label="Organization Requests"
+                    active={is("/admin/org-requests")}
+                  />
                 </>
               ) : (
                 <NavLink

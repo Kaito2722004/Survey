@@ -9,7 +9,7 @@ export type SurveyRow = {
   response_count: number;
   created_at: string;
   updated_at: string;
-  semester_id: string | null;
+  section_id: string | null; // ← renamed from semester_id
   teacher_id: string | null;
   deadline: string | null;
 };
@@ -37,12 +37,24 @@ export const surveysService = {
     return (data ?? []) as SurveyRow[];
   },
 
-  async getBySemesterAndTeacher(semesterId: string, teacherId: string) {
+  async getBySectionAndTeacher(sectionId: string, teacherId: string) {
     const { data, error } = await supabase
       .from("surveys")
       .select("*")
-      .eq("semester_id", semesterId)
+      .eq("section_id", sectionId) // ← renamed from semester_id
       .eq("teacher_id", teacherId)
+      .eq("is_published", true)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return (data ?? []) as SurveyRow[];
+  },
+
+  async getBySectionId(sectionId: string) {
+    const { data, error } = await supabase
+      .from("surveys")
+      .select("*")
+      .eq("section_id", sectionId)
       .eq("is_published", true)
       .order("created_at", { ascending: false });
 
@@ -54,8 +66,8 @@ export const surveysService = {
     user_id: string;
     title: string;
     description?: string;
-    semester_id: string;
-    teacher_id: string;
+    section_id: string | null; // ← renamed from semester_id
+    teacher_id: string | null;
     is_published?: boolean;
     deadline?: string | null;
   }) {
@@ -65,7 +77,7 @@ export const surveysService = {
         user_id: payload.user_id,
         title: payload.title,
         description: payload.description ?? null,
-        semester_id: payload.semester_id,
+        section_id: payload.section_id, // ← renamed
         teacher_id: payload.teacher_id,
         is_published: payload.is_published ?? true,
         deadline: payload.deadline ?? null,

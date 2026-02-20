@@ -22,8 +22,14 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Semester = { id: string; name: string };
-type Teacher = { id: string; name: string; email: string | null };
+type Section = {
+  id: string;
+  sem: number;
+  year_level: number;
+  program: string;
+  specialization: string;
+};
+type Teacher = { id: string; name: string };
 type TargetGroup = { id: string; name: string; description: string | null };
 type AlumniGroup = {
   id: string;
@@ -32,6 +38,12 @@ type AlumniGroup = {
   end_year: number;
 };
 type SurveyType = "teacher" | "general" | "alumni" | "organization";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function sectionLabel(s: Section) {
+  return `Y${s.year_level} ${s.specialization} — Sem ${s.sem} (${s.program})`;
+}
 
 // ─── Survey type config ───────────────────────────────────────────────────────
 
@@ -43,14 +55,14 @@ const SURVEY_TYPES: {
 }[] = [
   {
     id: "teacher",
-    label: "Semester + Teacher",
-    sub: "Target a specific teacher in a semester",
+    label: "Section + Teacher",
+    sub: "Target a specific teacher in a section",
     icon: Users,
   },
   {
     id: "general",
     label: "General Survey",
-    sub: "School-wide or target semesters",
+    sub: "School-wide or target specific sections",
     icon: Globe,
   },
   {
@@ -75,13 +87,13 @@ export default function AdminCreateSurvey() {
 
   const [surveyType, setSurveyType] = useState<SurveyType>("teacher");
 
-  const [semesters, setSemesters] = useState<Semester[]>([]);
-  const [selectedSemesterId, setSelectedSemesterId] = useState("");
+  const [sections, setSections] = useState<Section[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState("");
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
 
-  const [limitToSemesters, setLimitToSemesters] = useState(false);
-  const [generalSemesterIds, setGeneralSemesterIds] = useState<string[]>([]);
+  const [limitToSections, setLimitToSections] = useState(false);
+  const [generalSectionIds, setGeneralSectionIds] = useState<string[]>([]);
 
   const [targetGroups, setTargetGroups] = useState<TargetGroup[]>([]);
   const [selectedTargetGroupIds, setSelectedTargetGroupIds] = useState<
@@ -96,65 +108,51 @@ export default function AdminCreateSurvey() {
   const [deadline, setDeadline] = useState("");
   const [creating, setCreating] = useState(false);
 
-  // Load semesters
+  // Load sections
   useEffect(() => {
     (async () => {
-      const semRes = await supabase
-        .from("semesters")
-        .select("id,name")
-        .order("created_at", { ascending: false });
-      if (semRes.error) toast.error(semRes.error.message);
-      setSemesters((semRes.data || []) as Semester[]);
+      const res = await supabase
+        .from("sections")
+        .select("id,sem,year_level,program,specialization")
+        .order("year_level", { ascending: true });
+      if (res.error) toast.error(res.error.message);
+      setSections((res.data || []) as Section[]);
     })();
   }, []);
 
-  // Load teachers by semester
+  // Load teachers by section
   useEffect(() => {
     if (surveyType !== "teacher") return;
-    if (!selectedSemesterId) {
+    if (!selectedSectionId) {
       setTeachers([]);
       setSelectedTeacherId("");
       return;
     }
     (async () => {
-      const st = await supabase
-        .from("semester_teachers")
-        .select("teacher_id")
-        .eq("semester_id", selectedSemesterId);
-      if (st.error) return toast.error(st.error.message);
-      const ids = (st.data || [])
-        .map((r: any) => r.teacher_id)
-        .filter(Boolean) as string[];
-      if (ids.length === 0) {
-        setTeachers([]);
-        setSelectedTeacherId("");
-        return;
-      }
-      const tRes = await supabase
+      const res = await supabase
         .from("teachers")
-        .select("id,name,email")
-        .in("id", ids)
+        .select("id,name")
+        .eq("section_id", selectedSectionId)
         .order("name");
-      if (tRes.error) return toast.error(tRes.error.message);
-      setTeachers((tRes.data || []) as Teacher[]);
+      if (res.error) return toast.error(res.error.message);
+      setTeachers((res.data || []) as Teacher[]);
       setSelectedTeacherId("");
     })();
-  }, [selectedSemesterId, surveyType]);
+  }, [selectedSectionId, surveyType]);
 
   // Load target groups
   useEffect(() => {
     if (surveyType !== "organization") return;
     (async () => {
-      const tgRes = await supabase
+      const res = await supabase
         .from("target_groups")
         .select("id,name,description")
         .order("created_at", { ascending: false });
-      if (tgRes.error) {
-        toast.error(tgRes.error.message);
-        setTargetGroups([]);
+      if (res.error) {
+        toast.error(res.error.message);
         return;
       }
-      setTargetGroups((tgRes.data || []) as TargetGroup[]);
+      setTargetGroups((res.data || []) as TargetGroup[]);
     })();
   }, [surveyType]);
 
@@ -162,38 +160,37 @@ export default function AdminCreateSurvey() {
   useEffect(() => {
     if (surveyType !== "alumni") return;
     (async () => {
-      const agRes = await supabase
+      const res = await supabase
         .from("alumni_groups")
         .select("id,label,start_year,end_year")
         .order("start_year", { ascending: false });
-      if (agRes.error) {
-        toast.error(agRes.error.message);
-        setAlumniGroups([]);
+      if (res.error) {
+        toast.error(res.error.message);
         return;
       }
-      setAlumniGroups((agRes.data || []) as AlumniGroup[]);
+      setAlumniGroups((res.data || []) as AlumniGroup[]);
     })();
   }, [surveyType]);
 
   // Reset on type change
   useEffect(() => {
-    setSelectedSemesterId("");
+    setSelectedSectionId("");
     setSelectedTeacherId("");
     setTeachers([]);
-    setLimitToSemesters(false);
-    setGeneralSemesterIds([]);
+    setLimitToSections(false);
+    setGeneralSectionIds([]);
     setSelectedTargetGroupIds([]);
     setSelectedAlumniGroupId("");
   }, [surveyType]);
 
-  const semesterNameById = useMemo(() => {
+  const sectionLabelById = useMemo(() => {
     const m = new Map<string, string>();
-    semesters.forEach((s) => m.set(s.id, s.name));
+    sections.forEach((s) => m.set(s.id, sectionLabel(s)));
     return m;
-  }, [semesters]);
+  }, [sections]);
 
-  const toggleGeneralSemester = (id: string) =>
-    setGeneralSemesterIds((prev) =>
+  const toggleGeneralSection = (id: string) =>
+    setGeneralSectionIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
@@ -205,7 +202,7 @@ export default function AdminCreateSurvey() {
   const handleCreate = async () => {
     if (!title.trim()) return toast.error("Enter survey title.");
     if (surveyType === "teacher") {
-      if (!selectedSemesterId) return toast.error("Select a semester.");
+      if (!selectedSectionId) return toast.error("Select a section.");
       if (!selectedTeacherId) return toast.error("Select a teacher.");
     }
     if (surveyType === "organization" && selectedTargetGroupIds.length === 0)
@@ -219,11 +216,12 @@ export default function AdminCreateSurvey() {
         ? new Date(deadline.trim()).toISOString()
         : null;
 
+      // Teacher survey
       if (surveyType === "teacher") {
         const survey = await createSurvey(
           title.trim(),
           description.trim(),
-          selectedSemesterId,
+          selectedSectionId,
           selectedTeacherId,
           deadlineIso,
         );
@@ -233,6 +231,7 @@ export default function AdminCreateSurvey() {
         return;
       }
 
+      // Alumni survey
       if (surveyType === "alumni") {
         const survey = await createSurvey(
           title.trim(),
@@ -263,6 +262,7 @@ export default function AdminCreateSurvey() {
         return;
       }
 
+      // Organization survey
       if (surveyType === "organization") {
         const survey = await createSurvey(
           title.trim(),
@@ -281,7 +281,7 @@ export default function AdminCreateSurvey() {
           survey_id: survey.id,
           target_group_id,
         }));
-        const { error: linkErr } = await (supabase as any)
+        const { error: linkErr } = await supabase
           .from("survey_target_groups")
           .insert(rows);
         if (linkErr)
@@ -291,7 +291,7 @@ export default function AdminCreateSurvey() {
         return;
       }
 
-      // General
+      // General survey
       const survey = await createSurvey(
         title.trim(),
         description.trim(),
@@ -300,15 +300,13 @@ export default function AdminCreateSurvey() {
         deadlineIso,
       );
       if (!survey) throw new Error("Survey create returned null");
-      if (limitToSemesters && generalSemesterIds.length > 0) {
-        const rows = generalSemesterIds.map((semester_id) => ({
+      if (limitToSections && generalSectionIds.length > 0) {
+        const rows = generalSectionIds.map((section_id) => ({
           survey_id: survey.id,
-          semester_id,
+          section_id,
         }));
-        const { error } = await (supabase as any)
-          .from("survey_semesters")
-          .insert(rows);
-        if (error) toast.error("Targeting semesters failed.");
+        const { error } = await supabase.from("survey_sections").insert(rows);
+        if (error) toast.error("Targeting sections failed.");
       }
       toast.success("Survey created. Add questions now.");
       navigate(`/admin/surveys/${survey.id}/edit`);
@@ -319,8 +317,6 @@ export default function AdminCreateSurvey() {
       setCreating(false);
     }
   };
-
-  const selectedTypeConfig = SURVEY_TYPES.find((t) => t.id === surveyType)!;
 
   return (
     <div className="min-h-screen bg-background">
@@ -336,7 +332,6 @@ export default function AdminCreateSurvey() {
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Surveys
           </button>
-
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
             Admin · Surveys
           </p>
@@ -383,12 +378,7 @@ export default function AdminCreateSurvey() {
                         : "text-muted-foreground",
                     ].join(" ")}
                   />
-                  <span
-                    className={[
-                      "text-sm font-semibold",
-                      surveyType === id ? "text-foreground" : "text-foreground",
-                    ].join(" ")}
-                  >
+                  <span className="text-sm font-semibold text-foreground">
                     {label}
                   </span>
                 </div>
@@ -400,217 +390,211 @@ export default function AdminCreateSurvey() {
           </div>
         </section>
 
-        {/* ── Step 2: Type-specific config ── */}
-        {(surveyType === "teacher" ||
-          surveyType === "general" ||
-          surveyType === "organization" ||
-          surveyType === "alumni") && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold">
-                2
-              </span>
-              <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">
-                Targeting
-              </h2>
-            </div>
+        {/* ── Step 2: Targeting ── */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold">
+              2
+            </span>
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">
+              Targeting
+            </h2>
+          </div>
 
-            <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-              {/* Teacher */}
-              {surveyType === "teacher" && (
-                <>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Semester
-                    </label>
-                    <select
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-                      value={selectedSemesterId}
-                      onChange={(e) => setSelectedSemesterId(e.target.value)}
-                    >
-                      <option value="">Select semester…</option>
-                      {semesters.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Teacher
-                    </label>
-                    <select
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
-                      value={selectedTeacherId}
-                      onChange={(e) => setSelectedTeacherId(e.target.value)}
-                      disabled={!selectedSemesterId}
-                    >
-                      <option value="">
-                        {selectedSemesterId
-                          ? "Select teacher…"
-                          : "Select semester first"}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+            {/* Teacher */}
+            {surveyType === "teacher" && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Section
+                  </label>
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    value={selectedSectionId}
+                    onChange={(e) => setSelectedSectionId(e.target.value)}
+                  >
+                    <option value="">Select section…</option>
+                    {sections.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {sectionLabel(s)}
                       </option>
-                      {teachers.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                          {t.email ? ` (${t.email})` : ""}
-                        </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Teacher
+                  </label>
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
+                    value={selectedTeacherId}
+                    onChange={(e) => setSelectedTeacherId(e.target.value)}
+                    disabled={!selectedSectionId}
+                  >
+                    <option value="">
+                      {selectedSectionId
+                        ? "Select teacher…"
+                        : "Select section first"}
+                    </option>
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedSectionId && teachers.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No teachers assigned to this section yet.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* General */}
+            {surveyType === "general" && (
+              <div className="space-y-3">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={limitToSections}
+                    onChange={(e) => {
+                      setLimitToSections(e.target.checked);
+                      if (!e.target.checked) setGeneralSectionIds([]);
+                    }}
+                    className="w-4 h-4 rounded border-border"
+                  />
+                  <span className="text-sm text-foreground">
+                    Limit to specific sections{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </span>
+                </label>
+
+                {limitToSections && (
+                  <div className="space-y-2 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {sections.map((s) => (
+                        <label
+                          key={s.id}
+                          className={[
+                            "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors text-sm",
+                            generalSectionIds.includes(s.id)
+                              ? "border-primary/50 bg-primary/5 text-foreground"
+                              : "border-border text-muted-foreground hover:border-border/80 hover:bg-muted/20",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={generalSectionIds.includes(s.id)}
+                            onChange={() => toggleGeneralSection(s.id)}
+                            className="w-4 h-4"
+                          />
+                          {sectionLabel(s)}
+                        </label>
                       ))}
-                    </select>
-                    {selectedSemesterId && teachers.length === 0 && (
+                    </div>
+                    {generalSectionIds.length > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        No teachers assigned to this semester yet.
+                        Targeting:{" "}
+                        {generalSectionIds
+                          .map((id) => sectionLabelById.get(id) ?? id)
+                          .join(", ")}
                       </p>
                     )}
                   </div>
-                </>
-              )}
+                )}
 
-              {/* General */}
-              {surveyType === "general" && (
-                <div className="space-y-3">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={limitToSemesters}
-                      onChange={(e) => {
-                        setLimitToSemesters(e.target.checked);
-                        if (!e.target.checked) setGeneralSemesterIds([]);
-                      }}
-                      className="w-4 h-4 rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">
-                      Limit to specific semesters{" "}
-                      <span className="text-muted-foreground">(optional)</span>
-                    </span>
-                  </label>
+                {!limitToSections && (
+                  <p className="text-xs text-muted-foreground">
+                    Survey will be visible school-wide.
+                  </p>
+                )}
+              </div>
+            )}
 
-                  {limitToSemesters && (
-                    <div className="space-y-2 pt-1">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {semesters.map((s) => (
-                          <label
-                            key={s.id}
-                            className={[
-                              "flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors text-sm",
-                              generalSemesterIds.includes(s.id)
-                                ? "border-primary/50 bg-primary/5 text-foreground"
-                                : "border-border text-muted-foreground hover:border-border/80 hover:bg-muted/20",
-                            ].join(" ")}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={generalSemesterIds.includes(s.id)}
-                              onChange={() => toggleGeneralSemester(s.id)}
-                              className="w-4 h-4"
-                            />
-                            {s.name}
-                          </label>
-                        ))}
-                      </div>
-                      {generalSemesterIds.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          Targeting:{" "}
-                          {generalSemesterIds
-                            .map((id) => semesterNameById.get(id) ?? id)
-                            .join(", ")}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {!limitToSemesters && (
-                    <p className="text-xs text-muted-foreground">
-                      Survey will be visible school-wide.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Organization */}
-              {surveyType === "organization" && (
-                <div className="space-y-3">
-                  {targetGroups.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No target groups yet. Create them in the Target Groups
-                      admin page first.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {targetGroups.map((tg) => (
-                          <label
-                            key={tg.id}
-                            className={[
-                              "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
-                              selectedTargetGroupIds.includes(tg.id)
-                                ? "border-primary/50 bg-primary/5"
-                                : "border-border hover:border-border/80 hover:bg-muted/20",
-                            ].join(" ")}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedTargetGroupIds.includes(tg.id)}
-                              onChange={() => toggleTargetGroup(tg.id)}
-                              className="w-4 h-4 mt-0.5"
-                            />
-                            <div>
-                              <div className="text-sm font-medium text-foreground">
-                                {tg.name}
-                              </div>
-                              {tg.description && (
-                                <div className="text-xs text-muted-foreground">
-                                  {tg.description}
-                                </div>
-                              )}
+            {/* Organization */}
+            {surveyType === "organization" && (
+              <div className="space-y-3">
+                {targetGroups.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No target groups yet. Create them in the Target Groups admin
+                    page first.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {targetGroups.map((tg) => (
+                        <label
+                          key={tg.id}
+                          className={[
+                            "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors",
+                            selectedTargetGroupIds.includes(tg.id)
+                              ? "border-primary/50 bg-primary/5"
+                              : "border-border hover:border-border/80 hover:bg-muted/20",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedTargetGroupIds.includes(tg.id)}
+                            onChange={() => toggleTargetGroup(tg.id)}
+                            className="w-4 h-4 mt-0.5"
+                          />
+                          <div>
+                            <div className="text-sm font-medium text-foreground">
+                              {tg.name}
                             </div>
-                          </label>
-                        ))}
-                      </div>
-                      {selectedTargetGroupIds.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          {selectedTargetGroupIds.length} group
-                          {selectedTargetGroupIds.length !== 1 ? "s" : ""}{" "}
-                          selected
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Alumni */}
-              {surveyType === "alumni" && (
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Alumni Year Group
-                  </label>
-                  {alumniGroups.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No alumni groups yet. Create them in the Alumni Groups
-                      admin page first.
-                    </p>
-                  ) : (
-                    <select
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-                      value={selectedAlumniGroupId}
-                      onChange={(e) => setSelectedAlumniGroupId(e.target.value)}
-                    >
-                      <option value="">Select alumni group…</option>
-                      {alumniGroups.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.label || `Alumni ${g.start_year}–${g.end_year}`}
-                        </option>
+                            {tg.description && (
+                              <div className="text-xs text-muted-foreground">
+                                {tg.description}
+                              </div>
+                            )}
+                          </div>
+                        </label>
                       ))}
-                    </select>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+                    </div>
+                    {selectedTargetGroupIds.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {selectedTargetGroupIds.length} group
+                        {selectedTargetGroupIds.length !== 1 ? "s" : ""}{" "}
+                        selected
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Alumni */}
+            {surveyType === "alumni" && (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Alumni Year Group
+                </label>
+                {alumniGroups.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No alumni groups yet. Create them in the Alumni Groups admin
+                    page first.
+                  </p>
+                ) : (
+                  <select
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    value={selectedAlumniGroupId}
+                    onChange={(e) => setSelectedAlumniGroupId(e.target.value)}
+                  >
+                    <option value="">Select alumni group…</option>
+                    {alumniGroups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.label || `Alumni ${g.start_year}–${g.end_year}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
 
         {/* ── Step 3: Details ── */}
         <section className="space-y-3">
@@ -624,11 +608,9 @@ export default function AdminCreateSurvey() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-            {/* Title */}
             <div className="space-y-1.5">
               <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                <Type className="h-3 w-3" />
-                Title
+                <Type className="h-3 w-3" /> Title
               </label>
               <Input
                 value={title}
@@ -638,11 +620,9 @@ export default function AdminCreateSurvey() {
               />
             </div>
 
-            {/* Description */}
             <div className="space-y-1.5">
               <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                <AlignLeft className="h-3 w-3" />
-                Description{" "}
+                <AlignLeft className="h-3 w-3" /> Description{" "}
                 <span className="normal-case font-normal text-muted-foreground/70">
                   (optional)
                 </span>
@@ -656,11 +636,9 @@ export default function AdminCreateSurvey() {
               />
             </div>
 
-            {/* Deadline */}
             <div className="space-y-1.5">
               <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                <CalendarClock className="h-3 w-3" />
-                Deadline{" "}
+                <CalendarClock className="h-3 w-3" /> Deadline{" "}
                 <span className="normal-case font-normal text-muted-foreground/70">
                   (optional)
                 </span>
@@ -688,17 +666,17 @@ export default function AdminCreateSurvey() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate("/admin/semester-teachers")}
+            onClick={() => navigate("/admin/section-teachers")}
           >
-            Manage Semester Teachers
+            Manage Section Teachers
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate("/admin/students-semester")}
+            onClick={() => navigate("/admin/students-section")}
           >
-            Manage Student Semesters
+            Manage Student Sections
           </Button>
         </div>
       </main>
