@@ -201,7 +201,7 @@ export default function SurveyEditor() {
 
   if (isLoading && !hasCheckedSurvey.current) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background md:pl-56">
         <Header />
         <main className="container flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -212,7 +212,7 @@ export default function SurveyEditor() {
 
   if (!survey && hasCheckedSurvey.current) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background md:pl-56">
         <Header />
         <main className="container py-16">
           <div className="text-sm text-muted-foreground">Survey not found</div>
@@ -222,10 +222,10 @@ export default function SurveyEditor() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
-      <div className="sticky top-16 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
+      <div className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
         <div className="container flex h-14 items-center justify-between gap-4">
           <Button
             variant="ghost"

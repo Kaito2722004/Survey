@@ -16,25 +16,37 @@ import {
   LayoutList,
   ShieldCheck,
   ChevronRight,
+  LucideIcon,
 } from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NavItem = {
+  step: number;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  route: string;
+  label: string;
+  highlight?: boolean; // ← optional so items without it are valid
+};
 
 // ─── Nav card config ──────────────────────────────────────────────────────────
 
-const NAV_ITEMS = [
+const NAV_ITEMS: NavItem[] = [
   {
     step: 1,
-    title: "Students → Semester",
-    description:
-      "Assign each student to a semester so semester-scoped surveys are enforced correctly.",
+    title: "Insert Students",
+    description: "Insert Students into semesters using xlsx upload.",
     icon: Users,
     route: "/admin/students-semester",
     label: "Manage Students",
   },
   {
     step: 2,
-    title: "Semester → Teachers",
+    title: "Insert Teachers",
     description:
-      "Select a semester and add teachers that belong to it. A teacher can appear in multiple semesters.",
+      "Insert Teachers and assign them to semesters. This is required before creating Semester + Teacher surveys.",
     icon: BookOpen,
     route: "/admin/semester-teachers",
     label: "Manage Semester Teachers",
@@ -85,7 +97,15 @@ const NAV_ITEMS = [
     route: "/admin/users",
     label: "Manage Users",
   },
-] as const;
+  {
+    step: 8,
+    title: "Organization Requests",
+    description: "View and manage organization account requests.",
+    icon: Users,
+    route: "/admin/org-requests",
+    label: "Organization Requests",
+  },
+];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -122,7 +142,7 @@ export default function AdminDashboard() {
   }, [user?.id, refetchNotifications]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
       <main className="container py-10 space-y-8">

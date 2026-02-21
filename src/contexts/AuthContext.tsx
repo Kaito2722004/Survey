@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { profilesService } from "@/services/profiles";
-import { semesterStudentsService } from "@/services/semesterStudents";
 
 export type UserRole =
   | "admin"
@@ -13,36 +12,45 @@ export type UserRole =
   | "stakeholder"
   | "organization";
 
+// ─── Student row from public.students ────────────────────────────────────────
+type StudentRow = {
+  id: string;
+  student_id: string;
+  student_number: string;
+  name: string;
+  email: string;
+  section_id: string;
+  is_answered_survey: boolean;
+  is_alumni: boolean; // ← add this
+  alumni_group_id: string | null; // ← optional but good to have
+};
+
+// ─── App User ─────────────────────────────────────────────────────────────────
 type AppUser = {
   id: string;
   email: string;
   name: string;
   isAdmin: boolean;
-  role: UserRole | null; // ✅ can be null
-  semesterId: string | null;
+  role: UserRole | null;
+  sectionId: string | null;
+  studentRow: StudentRow | null;
 };
 
 type AuthContextType = {
   user: AppUser | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (
-    email: string,
-    password: string,
-    name: string,
-    role: UserRole,
-    semesterId?: string,
-  ) => Promise<void>;
+  studentLogin: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  requestPasswordReset: (
+    studentId: string,
+    newPassword: string,
+  ) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-type SessionUser = {
-  id: string;
-  email?: string | null;
-  user_metadata?: Record<string, unknown>;
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === "object" && "message" in err) {
@@ -78,33 +86,54 @@ function clearSupabaseAuthStorage() {
   keysToRemove.forEach((k) => localStorage.removeItem(k));
 }
 
-// ✅ Decide whether a signup role should be stored immediately or left NULL for admin assignment later
-function shouldStoreRoleImmediately(role: UserRole) {
-  // Students need role right away (semester link depends on it)
-  // Admin role should never come from signup UI unless you explicitly allow it (safer)
-  if (role === "student") return true;
+// ─── Student session (localStorage) ──────────────────────────────────────────
+const STUDENT_SESSION_KEY = "uit_student_session";
 
-  // For these roles you said: leave NULL so admin assigns later
-  if (role === "organization" || role === "teacher" || role === "stakeholder" || role === "alumni") {
-    return false;
-  }
-
-  return false;
+function saveStudentSession(student: StudentRow) {
+  localStorage.setItem(STUDENT_SESSION_KEY, JSON.stringify(student));
 }
+
+function loadStudentSession(): StudentRow | null {
+  try {
+    const raw = localStorage.getItem(STUDENT_SESSION_KEY);
+    return raw ? (JSON.parse(raw) as StudentRow) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearStudentSession() {
+  localStorage.removeItem(STUDENT_SESSION_KEY);
+}
+
+function studentRowToAppUser(student: StudentRow): AppUser {
+  return {
+    id: student.id,
+    email: student.email,
+    name: student.name,
+    isAdmin: false,
+    role: student.is_alumni ? "alumni" : "student", // ← check is_alumni
+
+    sectionId: student.section_id,
+    studentRow: student,
+  };
+}
+
+// ─── Build admin/portal AppUser from Supabase session ────────────────────────
+type SessionUser = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown>;
+};
 
 async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
   const meta = sessionUser.user_metadata ?? {};
-
   const metaName = typeof meta["name"] === "string" ? meta["name"] : undefined;
   const metaRole =
     typeof meta["role"] === "string" ? (meta["role"] as UserRole) : undefined;
-  const metaSemesterId =
-    typeof meta["semester_id"] === "string" ? meta["semester_id"] : undefined;
 
-  // Get or create profile
   const profile = await profilesService.getByUserId(sessionUser.id);
 
-  // ✅ If no profile exists, create one WITHOUT forcing a role.
   const ensured =
     profile ??
     (await profilesService.create({
@@ -112,45 +141,12 @@ async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
       email: sessionUser.email ?? "",
       name: metaName ?? sessionUser.email?.split("@")[0] ?? "User",
       is_admin: false,
-      // role: undefined  -> keep NULL
-      // If you want to trust metadata role ONLY when present, do:
       ...(metaRole ? { role: metaRole } : {}),
     }));
 
-  // ✅ Optional: Only sync from metadata if you WANT to.
-  // Since your requirement is "admin assigns later", we should NOT auto-sync role unless it’s student.
-  if (!ensured.is_admin && metaRole === "student" && ensured.role !== "student") {
-    try {
-      const updated = await profilesService.updateByUserId(sessionUser.id, {
-        role: "student",
-      });
-      ensured.role = updated.role;
-    } catch (e) {
-      console.error("Failed to sync role:", e);
-    }
-  }
-
-  // ✅ App user role:
-  // - admin if is_admin true
-  // - else from profile.role (can be null)
-  const role: UserRole | null = ensured.is_admin ? "admin" : (ensured.role as UserRole | null);
-
-  // Auto-link student to semester if not already linked
-  let studentLink =
-    role === "student"
-      ? await semesterStudentsService.getByStudent(sessionUser.id)
-      : null;
-
-  if (!ensured.is_admin && role === "student" && !studentLink && metaSemesterId) {
-    try {
-      studentLink = await semesterStudentsService.upsertStudentSemester(
-        metaSemesterId,
-        sessionUser.id,
-      );
-    } catch (e) {
-      console.error("Auto semester link failed:", e);
-    }
-  }
+  const role: UserRole | null = ensured.is_admin
+    ? "admin"
+    : (ensured.role as UserRole | null);
 
   return {
     id: sessionUser.id,
@@ -158,17 +154,30 @@ async function buildAppUser(sessionUser: SessionUser): Promise<AppUser> {
     name: ensured.name ?? sessionUser.email?.split("@")[0] ?? "User",
     isAdmin: !!ensured.is_admin,
     role,
-    semesterId: role === "student" ? (studentLink?.semester_id ?? null) : null,
+    sectionId: null,
+    studentRow: null,
   };
 }
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// ─── Provider ─────────────────────────────────────────────────────────────────
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
 
+    // 1. Check student session first (no Supabase auth needed)
+    const studentSession = loadStudentSession();
+    if (studentSession) {
+      setUser(studentRowToAppUser(studentSession));
+      setIsLoading(false);
+      return;
+    }
+
+    // 2. Otherwise check Supabase auth session (admin/portal)
     const loadFullUserInBackground = (session: any) => {
       buildAppUser({
         id: session.user.id,
@@ -194,7 +203,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(true);
         loadFullUserInBackground(session);
       } else {
-        setUser(null);
+        // Only clear user if not a student session
+        if (!loadStudentSession()) {
+          setUser(null);
+        }
         setIsLoading(false);
       }
     });
@@ -224,6 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // ── Admin/portal login (Supabase auth) ───────────────────────────────────
   const login = async (email: string, password: string) => {
     try {
       const { data } = await supabase.auth.getSession();
@@ -235,13 +248,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearSupabaseAuthStorage();
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error) {
       if (isRefreshTokenProblem(error)) {
         clearSupabaseAuthStorage();
         await supabase.auth.signOut();
-        throw new Error("Session expired. Please refresh the page and login again.");
+        throw new Error("Session expired. Please refresh and login again.");
       }
       if (error.message?.toLowerCase().includes("email not confirmed")) {
         throw new Error("Please confirm your email first (check your inbox).");
@@ -250,76 +266,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signup = async (
-    email: string,
-    password: string,
-    name: string,
-    role: UserRole,
-    semesterId?: string,
-  ) => {
-    // 1) Create auth user (store metadata for name/semester only if you want)
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name,
-          ...(role === "student" && semesterId ? { semester_id: semesterId } : {}),
-          // ✅ do NOT store role in metadata if admin should assign later
-          ...(role === "student" ? { role: "student" } : {}),
-        },
-      },
-    });
+  // ── Student login (checks public.students — no Supabase auth) ────────────
+  const studentLogin = async (email: string, password: string) => {
+    const { data, error } = await supabase
+      .from("students")
+      .select("*")
+      .eq("email", email)
+      .eq("password", password)
+      .maybeSingle(); // ← maybeSingle so it returns null instead of 406
 
-    if (error) throw error;
-    if (!data.user) throw new Error("Signup failed: no user returned");
+    if (error) throw new Error("Invalid email or password.");
+    if (!data) throw new Error("Invalid email or password.");
 
-    const userId = data.user.id;
-
-    // 2) Create/Update profile row
-    // ✅ If role should be assigned later => store NULL (omit field or set null)
-    const storeRole = shouldStoreRoleImmediately(role) ? role : null;
-
-    const { error: pErr } = await supabase
-      .from("profiles")
-      .upsert(
-        {
-          user_id: userId,
-          email,
-          name,
-          is_admin: false,
-          organization_id: null,
-          role: storeRole, // ✅ null for non-student
-        },
-        { onConflict: "user_id" },
-      );
-
-    if (pErr) throw pErr;
-
-    // 3) If student => link to semester
-    if (role === "student") {
-      if (!semesterId) throw new Error("Semester is required for students");
-
-      const { error: ssErr } = await supabase
-        .from("semester_students")
-        .upsert(
-          { semester_id: semesterId, student_user_id: userId },
-          { onConflict: "semester_id,student_user_id" },
-        );
-
-      if (ssErr) throw ssErr;
-    }
+    const student = data as StudentRow;
+    saveStudentSession(student);
+    setUser(studentRowToAppUser(student));
   };
 
+  // ── Logout ────────────────────────────────────────────────────────────────
   const logout = async () => {
+    // Student session logout
+    if (loadStudentSession()) {
+      clearStudentSession();
+      setUser(null);
+      return;
+    }
+
+    // Admin/portal logout
     const { error } = await supabase.auth.signOut();
     clearSupabaseAuthStorage();
     setUser(null);
     if (error) throw new Error(error.message);
   };
 
+  // ── Student password reset request ────────────────────────────────────────
+  const requestPasswordReset = async (
+    studentId: string,
+    newPassword: string,
+  ) => {
+    const { error } = await supabase.from("password_resets").insert({
+      student_id: studentId,
+      new_password: newPassword,
+      status: "pending",
+    });
+
+    if (error) throw new Error(error.message);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, signup, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        login,
+        studentLogin,
+        logout,
+        requestPasswordReset,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

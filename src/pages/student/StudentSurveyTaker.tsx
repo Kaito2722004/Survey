@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useSurvey } from "@/contexts/SurveyContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,36 +8,35 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { FileText, CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import { Survey } from "@/types/survey";
-import { useRef } from "react";
 import { Header } from "@/components/layout/Header";
 
 type SurveyAccessRow = {
   is_published: boolean;
-  semester_id: string | null;
+  section_id: string | null; // ← renamed
   teacher_id: string | null;
-  survey_semesters?: { semester_id: string }[] | null;
+  survey_sections?: { section_id: string }[] | null; // ← renamed
 };
 
 function canStudentAccessSurvey(
   survey: SurveyAccessRow,
-  studentSemesterId: string | null
+  studentSectionId: string | null, // ← renamed
 ) {
   if (!survey.is_published) return false;
 
   const isTeacherSurvey = !!survey.teacher_id;
 
   if (isTeacherSurvey) {
-    if (!studentSemesterId) return false;
-    return survey.semester_id === studentSemesterId;
+    if (!studentSectionId) return false;
+    return survey.section_id === studentSectionId; // ← renamed
   }
 
-  const targeted = (survey.survey_semesters ?? [])
-    .map((x) => x.semester_id)
+  const targeted = (survey.survey_sections ?? [])
+    .map((x) => x.section_id)
     .filter(Boolean);
 
   if (targeted.length > 0) {
-    if (!studentSemesterId) return false;
-    return targeted.includes(studentSemesterId);
+    if (!studentSectionId) return false;
+    return targeted.includes(studentSectionId);
   }
 
   return true;
@@ -50,12 +49,10 @@ export default function StudentSurveyTaker() {
 
   const [survey, setSurvey] = useState<Survey | null>(null);
   const [isLoadingSurvey, setIsLoadingSurvey] = useState(true);
-
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-
   const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
   const [isExpired, setIsExpired] = useState(false);
   const submitLockRef = useRef(false);
@@ -68,25 +65,15 @@ export default function StudentSurveyTaker() {
       setIsAllowed(null);
       setIsExpired(false);
 
-      const { data: semLink, error: semErr } = await supabase
-        .from("semester_students")
-        .select("semester_id")
-        .eq("student_user_id", user.id)
-        .maybeSingle();
+      // Get student's section_id directly from AuthContext (set on login)
+      const studentSectionId: string | null = user.sectionId ?? null;
 
-      if (semErr) {
-        console.error(semErr);
-        toast.error("Failed to check your semester.");
-        setIsAllowed(false);
-        setIsLoadingSurvey(false);
-        return;
-      }
-
-      const studentSemesterId: string | null = semLink?.semester_id ?? null;
-
+      // Load survey access info
       const { data: surveyRow, error: sErr } = await supabase
         .from("surveys")
-        .select("is_published,semester_id,teacher_id,survey_semesters(semester_id)")
+        .select(
+          "is_published,section_id,teacher_id,survey_sections(section_id)",
+        )
         .eq("id", id)
         .maybeSingle();
 
@@ -100,7 +87,7 @@ export default function StudentSurveyTaker() {
 
       const allowed = canStudentAccessSurvey(
         surveyRow as SurveyAccessRow,
-        studentSemesterId
+        studentSectionId,
       );
       setIsAllowed(allowed);
 
@@ -138,7 +125,6 @@ export default function StudentSurveyTaker() {
 
   const handleAnswerChange = (questionId: string, value: string | string[]) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
-
     if (errors[questionId]) {
       setErrors((prev) => {
         const next = { ...prev };
@@ -150,11 +136,9 @@ export default function StudentSurveyTaker() {
 
   const validateAnswers = (): boolean => {
     if (!survey) return false;
-
     const newErrors: Record<string, string> = {};
     survey.questions.forEach((q) => {
       if (!q.required) return;
-
       const ans = answers[q.id];
       if (Array.isArray(ans)) {
         if (ans.length === 0) newErrors[q.id] = "This question is required";
@@ -163,46 +147,45 @@ export default function StudentSurveyTaker() {
           newErrors[q.id] = "This question is required";
       }
     });
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
- const handleSubmit = async () => {
-  if (!id) return;
-  if (submitLockRef.current) return; // ✅ hard lock (prevents double submit)
-  if (isSubmitted) return;
+  const handleSubmit = async () => {
+    if (!id || !user) return;
+    if (submitLockRef.current) return;
+    if (isSubmitted) return;
 
-  if (!validateAnswers()) {
-    toast.error("Please fill in all required fields");
-    return;
-  }
-
-  submitLockRef.current = true;
-  setIsSubmitting(true);
-
-  try {
-    await submitResponse(id, answers);
-    setIsSubmitted(true);
-  } catch (err: unknown) {
-    const anyErr = err as any;
-    const code = anyErr?.code;
-    const msg = String(anyErr?.message ?? "").toLowerCase();
-
-    // ✅ duplicate = already submitted => treat as success
-    if (code === "23505" || msg.includes("duplicate key")) {
-      setIsSubmitted(true);
-      toast.success("You already submitted this survey.");
+    if (!validateAnswers()) {
+      toast.error("Please fill in all required fields");
       return;
     }
 
-    console.error(err);
-    toast.error("Failed to submit response. Please try again.");
-  } finally {
-    setIsSubmitting(false);
-    submitLockRef.current = false;
-  }
-};
+    submitLockRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      // Pass student's uuid (from public.students) as studentId
+      await submitResponse(id, user.id, answers, user.role);
+      setIsSubmitted(true);
+    } catch (err: unknown) {
+      const anyErr = err as any;
+      const code = anyErr?.code;
+      const msg = String(anyErr?.message ?? "").toLowerCase();
+
+      if (code === "23505" || msg.includes("duplicate key")) {
+        setIsSubmitted(true);
+        toast.success("You already submitted this survey.");
+        return;
+      }
+
+      console.error(err);
+      toast.error("Failed to submit response. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+    }
+  };
 
   if (isLoadingSurvey) {
     return (
@@ -318,7 +301,7 @@ export default function StudentSurveyTaker() {
                 <FileText className="h-4 w-4 text-primary-foreground" />
               </div>
               <span className="text-sm font-medium text-muted-foreground">
-                FormFlow
+                Survey
               </span>
             </div>
             <h1 className="text-2xl font-semibold text-foreground">
@@ -341,7 +324,10 @@ export default function StudentSurveyTaker() {
             >
               <QuestionRenderer
                 question={question}
-                value={answers[question.id] || (question.type === ("checkbox" as any) ? [] : "")}
+                value={
+                  answers[question.id] ||
+                  (question.type === ("checkbox" as any) ? [] : "")
+                }
                 onChange={(value) => handleAnswerChange(question.id, value)}
                 error={errors[question.id]}
               />

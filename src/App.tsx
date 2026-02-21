@@ -22,6 +22,7 @@ import SurveyEditor from "./pages/admin/SurveyEditor";
 import AdminAlumni from "./pages/admin/AdminAlumni";
 import AdminSurveyAnalytics from "./pages/admin/AdminSurveyAnalytics";
 import AdminGeneralChart from "@/components/charts/AdminGeneralChart";
+import AdminOrganizationRequests from "./pages/admin/AdminOrganizationRequests";
 
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentSurveyTaker from "./pages/student/StudentSurveyTaker";
@@ -89,6 +90,7 @@ const NonAdminRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// ✅ Allows both profiles with role="alumni" AND students with is_alumni=true
 const AlumniRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
@@ -97,6 +99,7 @@ const AlumniRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// ✅ RoleRedirect: alumni → /alumni
 const RoleRedirect = () => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingScreen />;
@@ -150,7 +153,14 @@ const AppRoutes = () => (
         </AdminRoute>
       }
     />
-    
+    <Route
+      path="/admin/org-requests"
+      element={
+        <AdminRoute>
+          <AdminOrganizationRequests />
+        </AdminRoute>
+      }
+    />
     <Route
       path="/admin/create-survey"
       element={
@@ -207,25 +217,23 @@ const AppRoutes = () => (
         </AdminRoute>
       }
     />
-
-<Route
-  path="/admin/target-groups"
-  element={
-    <AdminRoute>
-      <AdminTargetGroups />
-    </AdminRoute>
-  }
-/>
-
-<Route
-  path="/admin/target-groups/manage"
-  element={
-    <AdminRoute>
-      <AdminOrgTargetManager />
-    </AdminRoute>
-  }
-/>
-<Route path="/admin/users" element={<AdminUsers />} />
+    <Route
+      path="/admin/target-groups"
+      element={
+        <AdminRoute>
+          <AdminTargetGroups />
+        </AdminRoute>
+      }
+    />
+    <Route
+      path="/admin/target-groups/manage"
+      element={
+        <AdminRoute>
+          <AdminOrgTargetManager />
+        </AdminRoute>
+      }
+    />
+    <Route path="/admin/users" element={<AdminUsers />} />
 
     {/* Student */}
     <Route

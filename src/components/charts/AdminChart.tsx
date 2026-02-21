@@ -22,7 +22,6 @@ type DbQuestion = {
   title: string;
   type: string;
   options: any | null;
-  // If your DB does NOT have category column yet, keep this but it may always be null
   category?: string | null;
   order_index: number | null;
 };
@@ -34,19 +33,37 @@ type DbSurveyResponse = {
   submitted_at: string;
 };
 
+// ─── Category union (must match SurveyAnalyticsProps exactly) ────────────────
+type RatingCategory =
+  | "teaching"
+  | "communication"
+  | "knowledge"
+  | "support"
+  | "overall";
+
+const VALID_CATEGORIES = new Set<RatingCategory>([
+  "teaching",
+  "communication",
+  "knowledge",
+  "support",
+  "overall",
+]);
+
+function toRatingCategory(val: string): RatingCategory {
+  const lower = val.toLowerCase() as RatingCategory;
+  return VALID_CATEGORIES.has(lower) ? lower : "overall";
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function parseOptionsAny(options: any): string[] {
   if (!options) return [];
-
   if (Array.isArray(options)) return options.map(String);
-
-  if (typeof options === "object" && Array.isArray((options as any).options)) {
+  if (typeof options === "object" && Array.isArray((options as any).options))
     return (options as any).options.map(String);
-  }
-
   if (typeof options === "string") {
     const s = options.trim();
     if (!s) return [];
-
     try {
       const parsed = JSON.parse(s);
       if (Array.isArray(parsed)) return parsed.map(String);
@@ -54,21 +71,18 @@ function parseOptionsAny(options: any): string[] {
         parsed &&
         typeof parsed === "object" &&
         Array.isArray((parsed as any).options)
-      ) {
+      )
         return (parsed as any).options.map(String);
-      }
     } catch {
       // ignore
     }
   }
-
   return [];
 }
 
 function toRating(val: unknown, questionOptions?: any): number | null {
   if (val === null || val === undefined) return null;
 
-  // number 1..5 (or float)
   if (typeof val === "number") {
     const r = Math.round(val);
     return r >= 1 && r <= 5 ? r : null;
@@ -77,27 +91,22 @@ function toRating(val: unknown, questionOptions?: any): number | null {
   if (typeof val === "string") {
     const s = val.trim();
 
-    // opt-0..opt-4 -> 1..5
     const m = s.match(/^opt-(\d+)$/i);
     if (m) {
       const idx = Number(m[1]);
       if (Number.isFinite(idx) && idx >= 0 && idx <= 4) return idx + 1;
     }
 
-    // numeric string "1".."5" or "3.2"
     const n = Number(s);
     if (Number.isFinite(n)) {
       const r = Math.round(n);
       if (r >= 1 && r <= 5) return r;
     }
 
-    // label match -> index+1
     const opts = parseOptionsAny(questionOptions);
     if (opts.length) {
       const i = opts.findIndex((o) => String(o).trim() === s);
       if (i >= 0 && i <= 4) return i + 1;
-
-      // if label contains digit 1..5 ("Option 4")
       const digit = s.match(/[1-5]/)?.[0];
       if (digit) return Number(digit);
     }
@@ -110,14 +119,6 @@ function isAbortError(err: unknown) {
   const msg = String((err as any)?.message ?? err ?? "").toLowerCase();
   return msg.includes("abort");
 }
-
-// ✅ Category guesser for Sem+Teacher charts
-type RatingCategory =
-  | "teaching"
-  | "communication"
-  | "knowledge"
-  | "support"
-  | "overall";
 
 function guessCategory(title: string): RatingCategory {
   const t = title.toLowerCase();
@@ -165,7 +166,6 @@ function guessCategory(title: string): RatingCategory {
   return "overall";
 }
 
-// rating-like question types
 function isRatingLikeQuestion(q: DbQuestion) {
   return (
     q.type === "rating" ||
@@ -176,12 +176,13 @@ function isRatingLikeQuestion(q: DbQuestion) {
   );
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function AdminChart() {
   const { surveyId } = useParams<{ surveyId: string }>();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-
   const [survey, setSurvey] = useState<DbSurvey | null>(null);
   const [questions, setQuestions] = useState<DbQuestion[]>([]);
   const [responses, setResponses] = useState<DbSurveyResponse[]>([]);
@@ -199,38 +200,24 @@ export default function AdminChart() {
 
       setLoading(true);
       try {
-        // 1) Survey meta
         const sRes = await supabase
           .from("surveys")
           .select("id,title,semester_id,teacher_id")
           .eq("id", surveyId)
           .single();
-
         if (sRes.error) throw sRes.error;
 
-        // 2) Questions
-        // ✅ If your DB HAS category column, use this:
-        const qSelectWithCategory =
-          "id,title,type,options,category,order_index";
-
-        // ✅ If your DB does NOT have category column, use this instead:
-        const qSelectNoCategory = "id,title,type,options,order_index";
-
-        // ---- Choose ONE of these:
         const qRes = await supabase
           .from("questions")
-          .select(qSelectWithCategory) // <-- change to qSelectNoCategory if needed
+          .select("id,title,type,options,category,order_index")
           .eq("survey_id", surveyId)
           .order("order_index", { ascending: true });
-
         if (qRes.error) throw qRes.error;
 
-        // 3) Responses
         const rRes = await supabase
           .from("survey_responses")
           .select("id,survey_id,answers,submitted_at")
           .eq("survey_id", surveyId);
-
         if (rRes.error) throw rRes.error;
 
         if (!alive) return;
@@ -243,7 +230,6 @@ export default function AdminChart() {
         setQuestions(qs);
         setResponses(rs);
 
-        // 4) Teacher name (optional)
         if (sv.teacher_id) {
           const tRes = await supabase
             .from("teachers")
@@ -251,11 +237,9 @@ export default function AdminChart() {
             .eq("id", sv.teacher_id)
             .maybeSingle();
 
-          if (!tRes.error && tRes.data?.name) {
-            setTeacherName(tRes.data.name);
-          } else {
-            setTeacherName("Teacher");
-          }
+          setTeacherName(
+            !tRes.error && tRes.data?.name ? tRes.data.name : "Teacher",
+          );
         } else {
           setTeacherName("Teacher");
         }
@@ -281,36 +265,34 @@ export default function AdminChart() {
     };
   }, [surveyId]);
 
-  const isSemTeacherSurvey = useMemo(() => {
-    return !!survey?.semester_id && !!survey?.teacher_id;
-  }, [survey]);
+  const isSemTeacherSurvey = useMemo(
+    () => !!survey?.semester_id && !!survey?.teacher_id,
+    [survey],
+  );
 
-  // Build Sem+Teacher analytics data for SurveyAnalytics
   const semTeacherAnalyticsData = useMemo(() => {
-    if (!survey || !survey.teacher_id) return [];
+    if (!survey?.teacher_id) return [];
 
     const ratingQuestions = questions.filter((q) => isRatingLikeQuestion(q));
+    const toIterate = ratingQuestions.length ? ratingQuestions : questions;
 
     return responses.map((r) => {
       const ans = r.answers ?? {};
+
       const rows: {
         questionId: string;
         question: string;
         rating: number;
-        category: string;
+        category: RatingCategory; // ← strict union type
       }[] = [];
 
-      const toIterate = ratingQuestions.length ? ratingQuestions : questions;
-
       for (const q of toIterate) {
-        const raw = ans[q.id];
-
-        const rating = toRating(raw, q.options);
+        const rating = toRating(ans[q.id], q.options);
         if (!rating) continue;
 
-        // ✅ Use DB category if available, otherwise guess from title
-        const category = q.category
-          ? String(q.category).toLowerCase()
+        // ✅ DB category → validated union; fallback to title guesser
+        const category: RatingCategory = q.category
+          ? toRatingCategory(q.category)
           : guessCategory(q.title);
 
         rows.push({
@@ -334,7 +316,7 @@ export default function AdminChart() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background md:pl-56">
         <main className="container flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </main>
@@ -350,7 +332,6 @@ export default function AdminChart() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
-
           <div className="mt-6 text-muted-foreground">Survey not found.</div>
         </main>
       </div>
@@ -359,14 +340,12 @@ export default function AdminChart() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ✅ SEM+TEACHER */}
       {isSemTeacherSurvey ? (
         <SurveyAnalytics
           title={`Survey Analytics — ${survey.title}`}
           data={semTeacherAnalyticsData}
         />
       ) : (
-        /* ✅ GENERAL */
         <main className="container py-8 space-y-6">
           <div>
             <h1 className="text-3xl font-semibold text-foreground">

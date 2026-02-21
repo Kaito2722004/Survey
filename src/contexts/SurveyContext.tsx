@@ -19,16 +19,15 @@ interface Survey {
   isPublished: boolean;
   responseCount: number;
 
-  // Sem+Teacher surveys (existing)
-  semesterId?: string | null;
+  // Section + Teacher surveys
+  sectionId?: string | null;
   teacherId?: string | null;
 
-  // General survey targeting (new)
+  // General survey targeting
   // [] => whole school
-  // ["semId1","semId2"] => only those semesters
-  targetSemesterIds?: string[];
+  // ["sectionId1","sectionId2"] => only those sections
+  targetSectionIds?: string[];
 
-  /** When the survey closes (ISO string or null) */
   deadline?: string | null;
 }
 
@@ -47,7 +46,7 @@ interface SurveyContextType {
   createSurvey: (
     title: string,
     description?: string,
-    semesterId?: string | null,
+    sectionId?: string | null,
     teacherId?: string | null,
     deadline?: string | null,
   ) => Promise<Survey | null>;
@@ -68,7 +67,9 @@ interface SurveyContextType {
 
   submitResponse: (
     surveyId: string,
+    userId: string,
     answers: Record<string, string | string[]>,
+    role?: string,
   ) => Promise<void>;
 
   getResponses: (surveyId: string) => Promise<SurveyResponse[]>;
@@ -77,7 +78,6 @@ interface SurveyContextType {
 
 const SurveyContext = createContext<SurveyContextType | undefined>(undefined);
 
-/** UI uses "checkboxes" and DB also expects "checkboxes" */
 const toDbType = (uiType: Question["type"]) => {
   if (uiType === "checkboxes") return "checkboxes";
   return uiType as string;
@@ -87,7 +87,6 @@ const toUiType = (dbType: string) => {
   if (dbType === "checkboxes") return "checkboxes";
   return dbType as Question["type"];
 };
-
 
 function normalizeOptions(options: any): string[] {
   if (!options) return [];
@@ -127,11 +126,11 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setIsLoading(true);
     try {
-      // Load surveys (+ their target semesters via relation)
+      // Load surveys + their target sections via relation
       const { data: surveysData, error: surveysError } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,deadline,survey_semesters(semester_id)",
+          "id,title,description,is_published,response_count,created_at,updated_at,section_id,teacher_id,deadline,survey_sections(section_id)",
         )
         .eq("user_id", user.id)
         .order("updated_at", { ascending: false });
@@ -147,7 +146,6 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const surveyIds = base.map((s) => s.id);
 
-      // Load questions for those surveys
       const { data: qData, error: qErr } = await supabase
         .from("questions")
         .select("id,survey_id,title,type,options,required,order_index,category")
@@ -165,9 +163,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const mapped: Survey[] = base.map((s) => {
-        const targetSemesterIds =
-          (s.survey_semesters ?? [])
-            .map((x: any) => x.semester_id)
+        const targetSectionIds =
+          (s.survey_sections ?? [])
+            .map((x: any) => x.section_id)
             .filter(Boolean) ?? [];
 
         return {
@@ -179,9 +177,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
           updatedAt: new Date(s.updated_at),
           isPublished: !!s.is_published,
           responseCount: s.response_count ?? 0,
-          semesterId: s.semester_id ?? null,
+          sectionId: s.section_id ?? null,
           teacherId: s.teacher_id ?? null,
-          targetSemesterIds,
+          targetSectionIds,
           deadline: s.deadline ?? null,
         };
       });
@@ -210,7 +208,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data: s, error: sErr } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,response_count,created_at,updated_at,semester_id,teacher_id,deadline,survey_semesters(semester_id)",
+          "id,title,description,is_published,response_count,created_at,updated_at,section_id,teacher_id,deadline,survey_sections(section_id)",
         )
         .eq("id", id)
         .single();
@@ -225,9 +223,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (qErr) throw qErr;
 
-      const targetSemesterIds =
-        (s as any).survey_semesters
-          ?.map((x: any) => x.semester_id)
+      const targetSectionIds =
+        (s as any).survey_sections
+          ?.map((x: any) => x.section_id)
           .filter(Boolean) ?? [];
 
       return {
@@ -239,9 +237,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
         updatedAt: new Date(s.updated_at),
         isPublished: !!s.is_published,
         responseCount: s.response_count ?? 0,
-        semesterId: s.semester_id ?? null,
+        sectionId: s.section_id ?? null,
         teacherId: s.teacher_id ?? null,
-        targetSemesterIds,
+        targetSectionIds,
         deadline: (s as any).deadline ?? null,
       };
     } catch (e) {
@@ -253,7 +251,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
   const createSurvey = async (
     title: string,
     description?: string,
-    semesterId?: string | null,
+    sectionId?: string | null,
     teacherId?: string | null,
     deadline?: string | null,
   ) => {
@@ -267,7 +265,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
         description: description ?? null,
         is_published: false,
         response_count: 0,
-        semester_id: semesterId ?? null,
+        section_id: sectionId ?? null, // ← renamed
         teacher_id: teacherId ?? null,
         deadline: deadline ?? null,
       })
@@ -285,9 +283,9 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       updatedAt: new Date(res.data.updated_at),
       isPublished: !!res.data.is_published,
       responseCount: res.data.response_count ?? 0,
-      semesterId: res.data.semester_id ?? null,
+      sectionId: res.data.section_id ?? null, // ← renamed
       teacherId: res.data.teacher_id ?? null,
-      targetSemesterIds: [],
+      targetSectionIds: [],
       deadline: res.data.deadline ?? null,
     };
 
@@ -295,9 +293,8 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     return created;
   };
 
-  // ✅ OPTIMISTIC UPDATE - Instant UI feedback
   const updateSurvey = async (id: string, updates: Partial<Survey>) => {
-    // ✅ 1. Update local state immediately (optimistic)
+    // Optimistic update
     setSurveys((prev) =>
       prev.map((s) =>
         s.id === id ? { ...s, ...updates, updatedAt: new Date() } : s,
@@ -305,50 +302,43 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     );
 
     try {
-      // ✅ 2. Prepare database payload
       const payload: any = {};
       if (updates.title !== undefined) payload.title = updates.title;
       if (updates.description !== undefined)
         payload.description = updates.description ?? null;
       if (updates.isPublished !== undefined)
         payload.is_published = updates.isPublished;
-      if (updates.semesterId !== undefined)
-        payload.semester_id = updates.semesterId ?? null;
+      if (updates.sectionId !== undefined)
+        payload.section_id = updates.sectionId ?? null; // ← renamed
       if (updates.teacherId !== undefined)
         payload.teacher_id = updates.teacherId ?? null;
       if (updates.deadline !== undefined)
         payload.deadline = updates.deadline ?? null;
 
-      // For general targeting updates:
-      if (updates.targetSemesterIds !== undefined) {
-        // Remove old
+      // Handle general section targeting updates
+      if (updates.targetSectionIds !== undefined) {
         const del = await supabase
-          .from("survey_semesters")
+          .from("survey_sections") // ← renamed
           .delete()
           .eq("survey_id", id);
         if (del.error) throw del.error;
 
-        // Insert new (empty => whole school)
-        if (updates.targetSemesterIds.length > 0) {
+        if (updates.targetSectionIds.length > 0) {
           const ins = await supabase
-            .from("survey_semesters")
+            .from("survey_sections") // ← renamed
             .insert(
-              updates.targetSemesterIds.map((sid) => ({
+              updates.targetSectionIds.map((sid) => ({
                 survey_id: id,
-                semester_id: sid,
+                section_id: sid, // ← renamed
               })),
             );
           if (ins.error) throw ins.error;
         }
       }
 
-      // ✅ 3. Update database in background
       const res = await supabase.from("surveys").update(payload).eq("id", id);
       if (res.error) throw res.error;
-
-      // ✅ No fetchSurveys() here - optimistic update already done!
     } catch (error) {
-      // ❌ If database update fails, revert to server state
       console.error("Failed to update survey:", error);
       await fetchSurveys();
       throw error;
@@ -362,7 +352,6 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const addQuestion = async (surveyId: string, question: Question) => {
-    // ✅ Optimistic update
     setSurveys((prev) =>
       prev.map((s) => {
         if (s.id !== surveyId) return s;
@@ -375,9 +364,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     );
 
     try {
-      // Store options in DB as string[]
       const options = (question.options ?? []).map((o: any) => o.text);
-
       const res = await supabase.from("questions").insert({
         survey_id: surveyId,
         title: question.title,
@@ -389,8 +376,6 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       });
 
       if (res.error) throw res.error;
-
-      // ✅ Fetch only to get the real question ID from database
       await fetchSurveys();
     } catch (error) {
       console.error("Failed to add question:", error);
@@ -399,13 +384,11 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  // ✅ OPTIMISTIC UPDATE for questions - Instant typing
   const updateQuestion = async (
     surveyId: string,
     questionId: string,
     updates: Partial<Question>,
   ) => {
-    // ✅ 1. Update local state immediately
     setSurveys((prev) =>
       prev.map((s) => {
         if (s.id !== surveyId) return s;
@@ -420,7 +403,6 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     );
 
     try {
-      // ✅ 2. Prepare database payload
       const payload: any = {};
       if (updates.title !== undefined) payload.title = updates.title;
       if (updates.type !== undefined)
@@ -428,13 +410,11 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
       if (updates.required !== undefined) payload.required = !!updates.required;
       if ((updates as any).category !== undefined)
         payload.category = (updates as any).category ?? null;
-
       if (updates.options !== undefined) {
         const arr = (updates.options ?? []).map((o: any) => o.text);
         payload.options = arr.length ? arr : null;
       }
 
-      // ✅ 3. Update database in background
       const res = await supabase
         .from("questions")
         .update(payload)
@@ -442,10 +422,7 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
         .eq("survey_id", surveyId);
 
       if (res.error) throw res.error;
-
-      // ✅ No fetchSurveys() here - optimistic update already done!
     } catch (error) {
-      // ❌ If database update fails, revert to server state
       console.error("Failed to update question:", error);
       await fetchSurveys();
       throw error;
@@ -453,7 +430,6 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const deleteQuestion = async (surveyId: string, questionId: string) => {
-    // ✅ Optimistic delete
     setSurveys((prev) =>
       prev.map((s) => {
         if (s.id !== surveyId) return s;
@@ -481,15 +457,10 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const reorderQuestions = async (surveyId: string, qs: Question[]) => {
-    // ✅ Optimistic reorder
     setSurveys((prev) =>
       prev.map((s) => {
         if (s.id !== surveyId) return s;
-        return {
-          ...s,
-          questions: qs,
-          updatedAt: new Date(),
-        };
+        return { ...s, questions: qs, updatedAt: new Date() };
       }),
     );
 
@@ -511,16 +482,29 @@ export const SurveyProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  // Now requires studentId since survey_responses.student_id references public.students
   const submitResponse = async (
     surveyId: string,
+    userId: string,
     answers: Record<string, string | string[]>,
+    role?: string,
   ) => {
-    const { error } = await supabase.from("survey_responses").insert({
-      survey_id: surveyId,
-      answers,
-    });
-
-    if (error) throw error;
+    if (role === "organization") {
+      const { error } = await supabase.from("survey_responses").insert({
+        survey_id: surveyId,
+        user_id: userId, // auth user id
+        student_id: null, // not a student
+        answers,
+      });
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from("survey_responses").insert({
+        survey_id: surveyId,
+        student_id: userId, // public.students id
+        answers,
+      });
+      if (error) throw error;
+    }
   };
 
   const getResponses = async (surveyId: string): Promise<SurveyResponse[]> => {
