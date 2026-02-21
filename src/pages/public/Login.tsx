@@ -66,7 +66,6 @@ const Login = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
       <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
         <div className="w-full max-w-md animate-slide-up">
           <div className="card-elevated p-8">

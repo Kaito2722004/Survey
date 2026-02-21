@@ -325,7 +325,7 @@ export default function AdminSurveys() {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
       <main className="mx-auto max-w-5xl px-4 py-8 space-y-6">
@@ -607,12 +607,20 @@ export default function AdminSurveys() {
                       size="sm"
                       variant="outline"
                       className="gap-1.5 text-xs h-8"
-                      asChild
+                      disabled={s.is_published}
+                      asChild={!s.is_published}
                     >
-                      <Link to={`/admin/surveys/${s.id}/edit`}>
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </Link>
+                      {s.is_published ? (
+                        <>
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </>
+                      ) : (
+                        <Link to={`/admin/surveys/${s.id}/edit`}>
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </Link>
+                      )}
                     </Button>
                     <Button
                       size="sm"

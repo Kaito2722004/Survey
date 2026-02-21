@@ -36,18 +36,17 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   {
     step: 1,
-    title: "Students → Semester",
-    description:
-      "Assign each student to a semester so semester-scoped surveys are enforced correctly.",
+    title: "Insert Students",
+    description: "Insert Students into semesters using xlsx upload.",
     icon: Users,
     route: "/admin/students-semester",
     label: "Manage Students",
   },
   {
     step: 2,
-    title: "Semester → Teachers",
+    title: "Insert Teachers",
     description:
-      "Select a semester and add teachers that belong to it. A teacher can appear in multiple semesters.",
+      "Insert Teachers and assign them to semesters. This is required before creating Semester + Teacher surveys.",
     icon: BookOpen,
     route: "/admin/semester-teachers",
     label: "Manage Semester Teachers",
@@ -143,7 +142,7 @@ export default function AdminDashboard() {
   }, [user?.id, refetchNotifications]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
       <main className="container py-10 space-y-8">

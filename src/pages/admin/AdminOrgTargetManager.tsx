@@ -204,7 +204,9 @@ export default function AdminOrgTargetManager() {
     if (!selectedGroupId) return toast.error("Select a group first");
     if (!selectedMemberOrgId) return toast.error("Select an organization");
 
-    const exists = members.some((m) => m.organization_id === selectedMemberOrgId);
+    const exists = members.some(
+      (m) => m.organization_id === selectedMemberOrgId,
+    );
     if (exists) return toast.error("This organization is already in the group");
 
     const { error } = await supabase.from("target_group_members").insert({
@@ -292,7 +294,7 @@ export default function AdminOrgTargetManager() {
   ======================= */
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
       <main className="container py-8 space-y-8">
         <h1 className="text-3xl font-semibold">Target Groups</h1>
@@ -395,14 +397,19 @@ export default function AdminOrgTargetManager() {
 
         {/* ✅ NEW: Assign organization to org-role users */}
         <div className="card-elevated p-6 space-y-4">
-          <h2 className="font-semibold">Assign Organization to Organization Users</h2>
+          <h2 className="font-semibold">
+            Assign Organization to Organization Users
+          </h2>
           <p className="text-sm text-muted-foreground">
             Select a user whose <b>role = organization</b>, then assign which{" "}
             <b>Organization</b> they belong to.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Select value={assignOrgToUserId} onValueChange={setAssignOrgToUserId}>
+            <Select
+              value={assignOrgToUserId}
+              onValueChange={setAssignOrgToUserId}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select user (role = organization)" />
               </SelectTrigger>
