@@ -225,7 +225,7 @@ export default function OrganizationDashboard() {
   }, [surveys]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
       <main className="container py-8 space-y-6">
         <div>
