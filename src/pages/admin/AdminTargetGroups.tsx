@@ -41,7 +41,7 @@ export default function AdminTargetGroups() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
       <main className="container py-8 space-y-6">
@@ -56,9 +56,7 @@ export default function AdminTargetGroups() {
 
           {/* ✅ THIS IS THE BUTTON YOU WERE LOOKING FOR */}
           <Button asChild>
-            <Link to="/admin/target-groups/manage">
-              Manage Target Groups
-            </Link>
+            <Link to="/admin/target-groups/manage">Manage Target Groups</Link>
           </Button>
         </div>
 

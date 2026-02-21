@@ -1,8 +1,8 @@
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Header } from '@/components/layout/Header';
-import { useEffect } from 'react';
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Header } from "@/components/layout/Header";
+import { useEffect } from "react";
 import {
   FileText,
   Zap,
@@ -11,37 +11,37 @@ import {
   Shield,
   ArrowRight,
   Check,
-} from 'lucide-react';
+} from "lucide-react";
 
 const features = [
   {
     icon: <Zap className="h-6 w-6" />,
-    title: 'Dynamic Builder',
-    description: 'Create surveys with multiple question types in minutes.',
+    title: "Dynamic Builder",
+    description: "Create surveys with multiple question types in minutes.",
   },
   {
     icon: <LinkIcon className="h-6 w-6" />,
-    title: 'Easy Sharing',
-    description: 'Share via unique links. No login required for respondents.',
+    title: "Easy Sharing",
+    description: "Share via unique links. No login required for respondents.",
   },
   {
     icon: <BarChart3 className="h-6 w-6" />,
-    title: 'Real-time Analytics',
-    description: 'View responses instantly with beautiful charts.',
+    title: "Real-time Analytics",
+    description: "View responses instantly with beautiful charts.",
   },
   {
     icon: <Shield className="h-6 w-6" />,
-    title: 'Secure & Private',
-    description: 'Your data is encrypted and secure.',
+    title: "Secure & Private",
+    description: "Your data is encrypted and secure.",
   },
 ];
 
 const questionTypes = [
-  'Short Answer',
-  'Paragraph',
-  'Multiple Choice',
-  'Checkboxes',
-  'Dropdown',
+  "Short Answer",
+  "Paragraph",
+  "Multiple Choice",
+  "Checkboxes",
+  "Dropdown",
 ];
 
 const Index = () => {
@@ -50,14 +50,12 @@ const Index = () => {
 
   useEffect(() => {
     if (!isLoading && user) {
-      navigate('/dashboard');
+      navigate("/dashboard");
     }
   }, [user, isLoading, navigate]);
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
-
       {/* Hero Section */}
       <section className="container py-20 lg:py-32">
         <div className="mx-auto max-w-4xl text-center">
@@ -67,7 +65,7 @@ const Index = () => {
           </div>
 
           <h1 className="mb-6 text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            Create stunning surveys in{' '}
+            Create stunning surveys in{" "}
             <span className="gradient-text">minutes</span>
           </h1>
 
@@ -77,11 +75,15 @@ const Index = () => {
           </p>
 
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Button size="xl" onClick={() => navigate('/signup')}>
+            <Button size="xl" onClick={() => navigate("/signup")}>
               Start Building Free
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
-            <Button variant="outline" size="xl" onClick={() => navigate('/login')}>
+            <Button
+              variant="outline"
+              size="xl"
+              onClick={() => navigate("/login")}
+            >
               Sign In
             </Button>
           </div>
@@ -113,7 +115,9 @@ const Index = () => {
                 <h3 className="mb-2 text-lg font-medium text-foreground">
                   {feature.title}
                 </h3>
-                <p className="text-sm text-muted-foreground">{feature.description}</p>
+                <p className="text-sm text-muted-foreground">
+                  {feature.description}
+                </p>
               </div>
             ))}
           </div>
@@ -128,7 +132,8 @@ const Index = () => {
               Multiple question types
             </h2>
             <p className="mb-10 text-lg text-muted-foreground">
-              Choose from a variety of question formats to create engaging surveys
+              Choose from a variety of question formats to create engaging
+              surveys
             </p>
 
             <div className="flex flex-wrap justify-center gap-3">
@@ -138,7 +143,9 @@ const Index = () => {
                   className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2"
                 >
                   <Check className="h-4 w-4 text-success" />
-                  <span className="text-sm font-medium text-foreground">{type}</span>
+                  <span className="text-sm font-medium text-foreground">
+                    {type}
+                  </span>
                 </div>
               ))}
             </div>
@@ -156,7 +163,7 @@ const Index = () => {
             <p className="mb-8 text-lg text-muted-foreground">
               Create your first survey in minutes. No credit card required.
             </p>
-            <Button size="xl" onClick={() => navigate('/signup')}>
+            <Button size="xl" onClick={() => navigate("/signup")}>
               Create Your First Survey
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>

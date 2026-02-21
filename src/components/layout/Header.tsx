@@ -179,7 +179,7 @@ function SidebarContent({ onClose }: SidebarContentProps) {
                 onClick={onClose}
               />
               <NavLink
-                to="/admin/target-groups"
+                to="/admin/target-groups/manage"
                 icon={Users}
                 label="Target Groups"
                 active={is("/admin/target-groups")}
@@ -190,6 +190,13 @@ function SidebarContent({ onClose }: SidebarContentProps) {
                 icon={Users}
                 label="Org Requests"
                 active={is("/admin/org-requests")}
+                onClick={onClose}
+              />
+              <NavLink
+                to="/admin/users"
+                icon={Users}
+                label="Users"
+                active={is("/admin/users")}
                 onClick={onClose}
               />
             </>
@@ -209,9 +216,17 @@ function SidebarContent({ onClose }: SidebarContentProps) {
       <div className="border-t border-border px-3 py-3">
         {user ? (
           <div className="relative" ref={menuRef}>
-            <button
+            {/* Notification bell sits ABOVE the user button, outside it */}
+            <div className="flex justify-end px-1 pb-1">
+              <NotificationBell />
+            </div>
+
+            <div
+              role="button"
+              tabIndex={0}
               onClick={() => setMenuOpen((v) => !v)}
-              className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-muted/60 transition-colors"
+              onKeyDown={(e) => e.key === "Enter" && setMenuOpen((v) => !v)}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-muted/60 transition-colors cursor-pointer"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 border border-primary/20 flex-shrink-0">
                 <User className="h-4 w-4 text-primary" />
@@ -224,16 +239,13 @@ function SidebarContent({ onClose }: SidebarContentProps) {
                   {roleLabel}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <NotificationBell />
-                <ChevronDown
-                  className={[
-                    "h-3.5 w-3.5 text-muted-foreground transition-transform duration-150",
-                    menuOpen ? "rotate-180" : "",
-                  ].join(" ")}
-                />
-              </div>
-            </button>
+              <ChevronDown
+                className={[
+                  "h-3.5 w-3.5 text-muted-foreground transition-transform duration-150",
+                  menuOpen ? "rotate-180" : "",
+                ].join(" ")}
+              />
+            </div>
 
             {/* Popup menu */}
             {menuOpen && (

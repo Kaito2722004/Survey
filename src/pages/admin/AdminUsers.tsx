@@ -5,79 +5,178 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-type Role = "student" | "alumni" | "organization";
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type ProfileRow = {
+type StudentRow = {
+  id: string;
+  student_id: string;
+  student_number: string;
+  name: string;
+  email: string | null;
+  is_alumni: boolean;
+  section_id: string;
+  section_label: string | null;
+};
+
+type TeacherRow = {
+  id: string;
+  teacher_id: string;
+  name: string;
+  section_id: string;
+  section_label: string | null;
+};
+
+type OrgRow = {
   id: string;
   user_id: string;
   email: string;
   name: string | null;
-  role: string | null;
-  is_admin: boolean;
-  created_at: string;
+  organization_id: string | null;
+  organization_name: string | null;
 };
 
-type SectionKey = "unassigned" | "students" | "alumni" | "organizations";
+type UnassignedRow = {
+  id: string;
+  user_id: string;
+  email: string;
+  name: string | null;
+};
+
+type SectionKey =
+  | "unassigned"
+  | "students"
+  | "alumni"
+  | "teachers"
+  | "organizations";
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState<ProfileRow[]>([]);
-  const [query, setQuery] = useState("");
 
-  // dropdown drafts (per user)
-  const [roleDraft, setRoleDraft] = useState<Record<string, Role | "">>({});
+  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [alumni, setAlumni] = useState<StudentRow[]>([]);
+  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [organizations, setOrganizations] = useState<OrgRow[]>([]);
+  const [unassigned, setUnassigned] = useState<UnassignedRow[]>([]);
+
+  const [query, setQuery] = useState("");
+  const [roleDraft, setRoleDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
 
-  // bulk selection
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkRole, setBulkRole] = useState<Role | "">("");
-  const [bulkSaving, setBulkSaving] = useState(false);
-
-  // ✅ collapsed sections: click to expand
   const [open, setOpen] = useState<Record<SectionKey, boolean>>({
-    unassigned: true, // usually most important; set to false if you want all collapsed
+    unassigned: true,
     students: false,
     alumni: false,
+    teachers: false,
     organizations: false,
   });
 
-  const toggleOpen = (k: SectionKey) => {
-    setOpen((p) => ({ ...p, [k]: !p[k] }));
-  };
+  const toggleOpen = (k: SectionKey) => setOpen((p) => ({ ...p, [k]: !p[k] }));
 
   /* =======================
      Load
   ======================= */
   const load = async () => {
     setLoading(true);
+    try {
+      // sections lookup
+      const { data: sectionData } = await supabase
+        .from("sections")
+        .select("id,sem,year_level,program,specialization");
+      const sectionById = new Map<string, any>();
+      (sectionData ?? []).forEach((s: any) => sectionById.set(s.id, s));
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id,user_id,email,name,role,is_admin,created_at")
-      .eq("is_admin", false)
-      .order("created_at", { ascending: false });
+      const makeLabel = (section_id: string) => {
+        const sec = sectionById.get(section_id);
+        return sec
+          ? `Y${sec.year_level} ${sec.specialization} — Sem ${sec.sem} (${sec.program})`
+          : null;
+      };
 
-    if (error) {
-      console.error(error);
-      toast.error(error.message);
-      setUsers([]);
+      // students — is_alumni = false
+      const { data: studentData, error: studentErr } = await supabase
+        .from("students")
+        .select("id,student_id,student_number,name,email,is_alumni,section_id")
+        .eq("is_alumni", false)
+        .order("name", { ascending: true });
+      if (studentErr) throw studentErr;
+      setStudents(
+        (studentData ?? []).map((s: any) => ({
+          ...s,
+          section_label: makeLabel(s.section_id),
+        })),
+      );
+
+      // alumni — is_alumni = true
+      const { data: alumniData, error: alumniErr } = await supabase
+        .from("students")
+        .select("id,student_id,student_number,name,email,is_alumni,section_id")
+        .eq("is_alumni", true)
+        .order("name", { ascending: true });
+      if (alumniErr) throw alumniErr;
+      setAlumni(
+        (alumniData ?? []).map((s: any) => ({
+          ...s,
+          section_label: makeLabel(s.section_id),
+        })),
+      );
+
+      // teachers
+      const { data: teacherData, error: teacherErr } = await supabase
+        .from("teachers")
+        .select("id,teacher_id,name,section_id")
+        .order("name", { ascending: true });
+      if (teacherErr) throw teacherErr;
+      setTeachers(
+        (teacherData ?? []).map((t: any) => ({
+          ...t,
+          section_label: makeLabel(t.section_id),
+        })),
+      );
+
+      // organizations — profiles where role = 'organization'
+      const { data: orgProfileData, error: orgErr } = await supabase
+        .from("profiles")
+        .select("id,user_id,email,name,organization_id")
+        .eq("role", "organization")
+        .order("name", { ascending: true });
+      if (orgErr) throw orgErr;
+
+      const { data: orgData } = await supabase
+        .from("organizations")
+        .select("id,name");
+      const orgById = new Map<string, string>();
+      (orgData ?? []).forEach((o: any) => orgById.set(o.id, o.name));
+
+      setOrganizations(
+        (orgProfileData ?? []).map((p: any) => ({
+          id: p.id,
+          user_id: p.user_id,
+          email: p.email,
+          name: p.name,
+          organization_id: p.organization_id,
+          organization_name: p.organization_id
+            ? (orgById.get(p.organization_id) ?? null)
+            : null,
+        })),
+      );
+
+      // unassigned — profiles where role is null and not admin
+      const { data: unassignedData, error: unassignedErr } = await supabase
+        .from("profiles")
+        .select("id,user_id,email,name")
+        .is("role", null)
+        .eq("is_admin", false)
+        .order("created_at", { ascending: false });
+      if (unassignedErr) throw unassignedErr;
+      setUnassigned(unassignedData ?? []);
+    } catch (e: any) {
+      console.error("Load error:", e);
+      toast.error(e?.message ?? "Failed to load users");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const rows = (data ?? []) as ProfileRow[];
-    setUsers(rows);
-
-    // init role draft
-    setRoleDraft((prev) => {
-      const next = { ...prev };
-      rows.forEach((u) => {
-        if (next[u.user_id] === undefined) next[u.user_id] = (u.role as Role) || "";
-      });
-      return next;
-    });
-
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -85,81 +184,90 @@ export default function AdminUsers() {
   }, []);
 
   /* =======================
-     Search + Groups
+     Search filters
   ======================= */
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
+  const q = query.trim().toLowerCase();
 
-    return users.filter((u) => {
-      const email = (u.email ?? "").toLowerCase();
-      const name = (u.name ?? "").toLowerCase();
-      const role = (u.role ?? "").toLowerCase();
-      return email.includes(q) || name.includes(q) || role.includes(q);
-    });
-  }, [users, query]);
+  const filteredStudents = useMemo(
+    () =>
+      !q
+        ? students
+        : students.filter(
+            (s) =>
+              s.name.toLowerCase().includes(q) ||
+              (s.email ?? "").toLowerCase().includes(q) ||
+              s.student_number.toLowerCase().includes(q),
+          ),
+    [students, q],
+  );
 
-  const unassigned = useMemo(() => filtered.filter((u) => !u.role), [filtered]);
-  const students = useMemo(() => filtered.filter((u) => u.role === "student"), [filtered]);
-  const alumni = useMemo(() => filtered.filter((u) => u.role === "alumni"), [filtered]);
-  const organizations = useMemo(() => filtered.filter((u) => u.role === "organization"), [filtered]);
+  const filteredAlumni = useMemo(
+    () =>
+      !q
+        ? alumni
+        : alumni.filter(
+            (s) =>
+              s.name.toLowerCase().includes(q) ||
+              (s.email ?? "").toLowerCase().includes(q) ||
+              s.student_number.toLowerCase().includes(q),
+          ),
+    [alumni, q],
+  );
 
-  const selectedCount = selected.size;
+  const filteredTeachers = useMemo(
+    () =>
+      !q
+        ? teachers
+        : teachers.filter(
+            (t) =>
+              t.name.toLowerCase().includes(q) ||
+              t.teacher_id.toLowerCase().includes(q) ||
+              (t.section_label ?? "").toLowerCase().includes(q),
+          ),
+    [teachers, q],
+  );
+
+  const filteredOrgs = useMemo(
+    () =>
+      !q
+        ? organizations
+        : organizations.filter(
+            (o) =>
+              (o.name ?? "").toLowerCase().includes(q) ||
+              o.email.toLowerCase().includes(q) ||
+              (o.organization_name ?? "").toLowerCase().includes(q),
+          ),
+    [organizations, q],
+  );
+
+  const filteredUnassigned = useMemo(
+    () =>
+      !q
+        ? unassigned
+        : unassigned.filter(
+            (u) =>
+              (u.name ?? "").toLowerCase().includes(q) ||
+              u.email.toLowerCase().includes(q),
+          ),
+    [unassigned, q],
+  );
 
   /* =======================
-     Selection helpers
-  ======================= */
-  const isSelected = (user_id: string) => selected.has(user_id);
-
-  const toggleSelected = (user_id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(user_id)) next.delete(user_id);
-      else next.add(user_id);
-      return next;
-    });
-  };
-
-  const clearSelection = () => setSelected(new Set());
-
-  const selectAllInList = (list: ProfileRow[]) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      list.forEach((u) => next.add(u.user_id));
-      return next;
-    });
-  };
-
-  const clearAllInList = (list: ProfileRow[]) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      list.forEach((u) => next.delete(u.user_id));
-      return next;
-    });
-  };
-
-  const allSelectedInList = (list: ProfileRow[]) =>
-    list.length > 0 && list.every((u) => selected.has(u.user_id));
-
-  const someSelectedInList = (list: ProfileRow[]) =>
-    list.some((u) => selected.has(u.user_id));
-
-  /* =======================
-     Save role (single)
+     Save role (unassigned)
   ======================= */
   const saveRole = async (user_id: string) => {
     const newRole = roleDraft[user_id];
     if (!newRole) return toast.error("Select a role first.");
-
     setSaving((p) => ({ ...p, [user_id]: true }));
     try {
-      const { error } = await supabase.from("profiles").update({ role: newRole }).eq("user_id", user_id);
+      const { error } = await supabase
+        .from("profiles")
+        .update({ role: newRole })
+        .eq("user_id", user_id);
       if (error) throw error;
-
-      toast.success("Role updated");
+      toast.success("Role assigned");
       await load();
     } catch (e: any) {
-      console.error(e);
       toast.error(e?.message ?? "Failed to update role");
     } finally {
       setSaving((p) => ({ ...p, [user_id]: false }));
@@ -167,96 +275,24 @@ export default function AdminUsers() {
   };
 
   /* =======================
-     Bulk apply
+     UI: Section wrapper
   ======================= */
-  const applyBulkRole = async () => {
-    if (!bulkRole) return toast.error("Choose a bulk role first.");
-    if (selected.size === 0) return toast.error("Select at least 1 user.");
-
-    const ids = Array.from(selected);
-
-    setBulkSaving(true);
-    try {
-      const { error } = await supabase.from("profiles").update({ role: bulkRole }).in("user_id", ids);
-      if (error) throw error;
-
-      toast.success(`Updated ${ids.length} user(s)`);
-      setBulkRole("");
-      clearSelection();
-      await load();
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message ?? "Bulk update failed");
-    } finally {
-      setBulkSaving(false);
-    }
-  };
-
-  /* =======================
-     UI blocks
-  ======================= */
-  const UserRow = ({ u }: { u: ProfileRow }) => {
-    const draft = roleDraft[u.user_id] ?? "";
-
-    return (
-      <div className="flex flex-col gap-3 rounded-lg border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-3 items-start">
-          <input
-            type="checkbox"
-            className="mt-1 h-4 w-4"
-            checked={isSelected(u.user_id)}
-            onChange={() => toggleSelected(u.user_id)}
-          />
-          <div>
-            <div className="font-medium">{u.name ?? "(No name)"}</div>
-            <div className="text-sm text-muted-foreground">{u.email}</div>
-            <div className="text-xs text-muted-foreground">current role: {u.role ?? "NULL"}</div>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-          <select
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-            value={draft}
-            onChange={(e) =>
-              setRoleDraft((p) => ({
-                ...p,
-                [u.user_id]: e.target.value as Role | "",
-              }))
-            }
-          >
-            <option value="">-- Select role --</option>
-            <option value="student">student</option>
-            <option value="alumni">alumni</option>
-            <option value="organization">organization</option>
-          </select>
-
-          <Button onClick={() => saveRole(u.user_id)} disabled={!!saving[u.user_id]}>
-            {saving[u.user_id] ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      </div>
-    );
-  };
-
   const Section = ({
     k,
     title,
     subtitle,
-    list,
+    count,
+    children,
   }: {
     k: SectionKey;
     title: string;
     subtitle: string;
-    list: ProfileRow[];
+    count: number;
+    children: React.ReactNode;
   }) => {
     const expanded = open[k];
-    const all = allSelectedInList(list);
-    const some = someSelectedInList(list);
-
     return (
       <div className="card-elevated overflow-hidden">
-        {/* Header (click to expand) */}
         <button
           type="button"
           onClick={() => toggleOpen(k)}
@@ -266,41 +302,19 @@ export default function AdminUsers() {
             <h2 className="text-lg font-semibold">{title}</h2>
             <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
-
           <div className="flex items-center gap-3">
-            <div className="text-sm text-muted-foreground">Count: {list.length}</div>
-            <div className="text-sm font-medium">{expanded ? "▲" : "▼"}</div>
+            <span className="text-sm text-muted-foreground">
+              Count: {count}
+            </span>
+            <span className="text-sm font-medium">{expanded ? "▲" : "▼"}</span>
           </div>
         </button>
-
-        {/* Body */}
         {expanded && (
-          <div className="border-t border-border p-6 space-y-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="text-sm text-muted-foreground">
-                Selected in this section:{" "}
-                <b>{list.filter((u) => selected.has(u.user_id)).length}</b>
-              </div>
-
-              <div className="flex gap-2 flex-wrap">
-                <Button
-                  variant="outline"
-                  onClick={() => (all ? clearAllInList(list) : selectAllInList(list))}
-                  disabled={list.length === 0}
-                >
-                  {all ? "Unselect section" : some ? "Select remaining" : "Select section"}
-                </Button>
-              </div>
-            </div>
-
-            {list.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No users in this section.</div>
+          <div className="border-t border-border p-6 space-y-3">
+            {count === 0 ? (
+              <p className="text-sm text-muted-foreground">No users here.</p>
             ) : (
-              <div className="space-y-3">
-                {list.map((u) => (
-                  <UserRow key={u.id} u={u} />
-                ))}
-              </div>
+              children
             )}
           </div>
         )}
@@ -309,97 +323,182 @@ export default function AdminUsers() {
   };
 
   /* =======================
+     UI: Cards
+  ======================= */
+  const StudentCard = ({ s }: { s: StudentRow }) => (
+    <div className="rounded-lg border border-border p-4 space-y-0.5">
+      <div className="font-medium">{s.name}</div>
+      {s.email && (
+        <div className="text-sm text-muted-foreground">{s.email}</div>
+      )}
+      <div className="text-xs text-muted-foreground">
+        Student #: {s.student_number} · ID: {s.student_id}
+      </div>
+      {s.section_label && (
+        <div className="text-xs text-muted-foreground">
+          Section: {s.section_label}
+        </div>
+      )}
+    </div>
+  );
+
+  const TeacherCard = ({ t }: { t: TeacherRow }) => (
+    <div className="rounded-lg border border-border p-4 space-y-0.5">
+      <div className="font-medium">{t.name}</div>
+      <div className="text-xs text-muted-foreground">
+        Teacher ID: {t.teacher_id}
+      </div>
+      {t.section_label && (
+        <div className="text-xs text-muted-foreground">
+          Section: {t.section_label}
+        </div>
+      )}
+    </div>
+  );
+
+  const OrgCard = ({ o }: { o: OrgRow }) => (
+    <div className="rounded-lg border border-border p-4 space-y-0.5">
+      <div className="font-medium">{o.name ?? "(No name)"}</div>
+      <div className="text-sm text-muted-foreground">{o.email}</div>
+      {o.organization_name ? (
+        <div className="text-xs text-muted-foreground">
+          Org: {o.organization_name}
+        </div>
+      ) : (
+        <div className="text-xs text-amber-600">No organization linked</div>
+      )}
+    </div>
+  );
+
+  const UnassignedCard = ({ u }: { u: UnassignedRow }) => (
+    <div className="flex flex-col gap-3 rounded-lg border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-0.5">
+        <div className="font-medium">{u.name ?? "(No name)"}</div>
+        <div className="text-sm text-muted-foreground">{u.email}</div>
+        <div className="text-xs text-muted-foreground">Role: NULL</div>
+      </div>
+      <div className="flex gap-2 items-center">
+        <select
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          value={roleDraft[u.user_id] ?? ""}
+          onChange={(e) =>
+            setRoleDraft((p) => ({ ...p, [u.user_id]: e.target.value }))
+          }
+        >
+          <option value="">-- Assign role --</option>
+          <option value="student">student</option>
+          <option value="alumni">alumni</option>
+          <option value="organization">organization</option>
+        </select>
+        <Button
+          size="sm"
+          onClick={() => saveRole(u.user_id)}
+          disabled={!!saving[u.user_id] || !roleDraft[u.user_id]}
+        >
+          {saving[u.user_id] ? "Saving..." : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+
+  /* =======================
      Render
   ======================= */
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
       <main className="container py-8 space-y-6 max-w-5xl">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-3xl font-semibold text-foreground">User Role Management</h1>
+            <h1 className="text-3xl font-semibold text-foreground">
+              User Management
+            </h1>
             <p className="mt-1 text-muted-foreground">
-              Click a category to view users. Bulk assign roles with checkboxes.
+              Students &amp; alumni from the students table · Teachers from the
+              teachers table · Organizations &amp; unassigned from profiles.
             </p>
           </div>
-
-          <Button variant="outline" onClick={load}>
+          <Button variant="outline" onClick={load} disabled={loading}>
             Refresh
           </Button>
         </div>
 
-        {/* Search + Bulk bar */}
-        <div className="card-elevated p-4 space-y-3">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by name / email / role..."
-            />
-            <div className="text-sm text-muted-foreground">Total users: {filtered.length}</div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-            <div className="text-sm text-muted-foreground">
-              Selected: <b>{selectedCount}</b>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-              <select
-                className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-                value={bulkRole}
-                onChange={(e) => setBulkRole(e.target.value as Role | "")}
-              >
-                <option value="">-- Bulk role --</option>
-                <option value="student">student</option>
-                <option value="alumni">alumni</option>
-                <option value="organization">organization</option>
-              </select>
-
-              <Button onClick={applyBulkRole} disabled={bulkSaving || selectedCount === 0 || !bulkRole}>
-                {bulkSaving ? "Applying..." : "Apply to selected"}
-              </Button>
-
-              <Button variant="outline" onClick={clearSelection} disabled={selectedCount === 0}>
-                Clear selection
-              </Button>
-            </div>
-          </div>
-
-          <div className="text-xs text-muted-foreground">
-            Tip: Open a section → click “Select section” → apply bulk role.
-          </div>
+        {/* Search */}
+        <div className="card-elevated p-4">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name / email / student# / teacher ID / org..."
+          />
         </div>
 
-        {loading && <div className="text-sm text-muted-foreground">Loading users...</div>}
-
-        {!loading && (
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Loading users...</div>
+        ) : (
           <div className="grid gap-4">
             <Section
               k="unassigned"
               title="Unassigned (role = NULL)"
-              subtitle="Click to expand and bulk assign roles."
-              list={unassigned}
-            />
+              subtitle="Profiles with no role assigned yet."
+              count={filteredUnassigned.length}
+            >
+              {filteredUnassigned.map((u) => (
+                <UnassignedCard key={u.id} u={u} />
+              ))}
+            </Section>
+
             <Section
               k="students"
               title="Students"
-              subtitle="role = student"
-              list={students}
-            />
+              subtitle="From students table where is_alumni = false."
+              count={filteredStudents.length}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                {filteredStudents.map((s) => (
+                  <StudentCard key={s.id} s={s} />
+                ))}
+              </div>
+            </Section>
+
             <Section
               k="alumni"
               title="Alumni"
-              subtitle="role = alumni"
-              list={alumni}
-            />
+              subtitle="From students table where is_alumni = true."
+              count={filteredAlumni.length}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                {filteredAlumni.map((s) => (
+                  <StudentCard key={s.id} s={s} />
+                ))}
+              </div>
+            </Section>
+
+            <Section
+              k="teachers"
+              title="Teachers"
+              subtitle="From teachers table."
+              count={filteredTeachers.length}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                {filteredTeachers.map((t) => (
+                  <TeacherCard key={t.id} t={t} />
+                ))}
+              </div>
+            </Section>
+
             <Section
               k="organizations"
               title="Organizations"
-              subtitle="role = organization"
-              list={organizations}
-            />
+              subtitle="From profiles table where role = 'organization'."
+              count={filteredOrgs.length}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                {filteredOrgs.map((o) => (
+                  <OrgCard key={o.id} o={o} />
+                ))}
+              </div>
+            </Section>
           </div>
         )}
       </main>

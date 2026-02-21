@@ -181,7 +181,7 @@ export default function AdminSurveyResponses() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background md:pl-56">
         <Header />
         <main className="container flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -193,11 +193,11 @@ export default function AdminSurveyResponses() {
   const hasChartableQuestions = optionQuestions.length > 0;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
 
       {/* ── Sticky top bar ── */}
-      <div className="sticky top-16 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
+      <div className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
         <div className="container flex h-14 items-center justify-between gap-4">
           <Button
             variant="ghost"

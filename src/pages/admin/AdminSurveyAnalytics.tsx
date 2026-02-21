@@ -52,7 +52,7 @@ export default function AdminSurveyAnalytics() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background md:pl-56">
         <Header />
         <div className="container py-10 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -81,7 +81,7 @@ export default function AdminSurveyAnalytics() {
   const isSemTeacher = !!survey.semester_id && !!survey.teacher_id;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background md:pl-56">
       <Header />
       <div className="container py-8 space-y-6">
         <div className="flex items-center justify-between gap-4">
