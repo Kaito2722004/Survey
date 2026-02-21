@@ -23,8 +23,7 @@ type SurveyRow = {
   description: string | null;
   deadline: string | null;
   created_at?: string;
-  survey_semesters?: { semester_id: string }[] | null;
-  // you select these too (not used in UI, but keep for safety)
+  survey_sections?: { section_id: string }[] | null;
   is_published?: boolean;
   target_role?: string | null;
   organization_id?: string | null;
@@ -71,7 +70,6 @@ export default function OrganizationDashboard() {
     const load = async () => {
       setLoading(true);
 
-      // Helpful: group console output per load
       console.groupCollapsed("[OrgDashboard] load()");
       console.log("auth user.id:", user.id);
 
@@ -110,7 +108,7 @@ export default function OrganizationDashboard() {
           setOrgName(orgRow?.name ?? "Organization");
         }
 
-        // ✅ Step 3: Get my target group ids by organization_id (NEW)
+        // Step 3: Get my target group ids by organization_id
         let targetGroupIds: string[] = [];
         if (!myOrgId) {
           console.log(
@@ -153,38 +151,21 @@ export default function OrganizationDashboard() {
         console.log("Step 4 surveyIdsFromGroups:", surveyIdsFromGroups);
 
         // Step 5: Fetch surveys
-        const baseSurveyQuery = supabase
-          .from("surveys")
-          .select(
-            "id,title,description,deadline,created_at,is_published,target_role,survey_semesters(semester_id),organization_id",
-          )
-          .eq("is_published", true)
-          .eq("target_role", "organization")
-          .order("created_at", { ascending: false });
-
-        const orParts: string[] = [];
-
-        if (surveyIdsFromGroups.length > 0) {
-          // supabase OR expects: id.in.(a,b,c)
-          orParts.push(`id.in.(${surveyIdsFromGroups.join(",")})`);
-        }
-
-        // Optional: keep org-specific surveys if you use surveys.organization_id
-        if (myOrgId) {
-          orParts.push(`organization_id.eq.${myOrgId}`);
-        }
-
-        console.log("Step 5 orParts:", orParts);
-
-        if (orParts.length === 0) {
-          console.log("Step 5: orParts empty -> setSurveys([])");
+        if (surveyIdsFromGroups.length === 0) {
+          console.log("Step 5: no survey ids -> setSurveys([])");
           setSurveys([]);
           return;
         }
 
-        const { data: all, error: surveyErr } = await baseSurveyQuery.or(
-          orParts.join(","),
-        );
+        const { data: all, error: surveyErr } = await supabase
+          .from("surveys")
+          .select(
+            "id,title,description,deadline,created_at,is_published,target_role,survey_sections(section_id),organization_id",
+          )
+          .eq("is_published", true)
+          .eq("target_role", "organization")
+          .in("id", surveyIdsFromGroups)
+          .order("created_at", { ascending: false });
 
         console.log("Step 5 surveys fetched:", all, "error:", surveyErr);
 
@@ -197,9 +178,8 @@ export default function OrganizationDashboard() {
 
         console.log("Step 6 allSurveys (deduped):", allSurveys);
 
-        // Keep this rule (won't hide if semester_links = 0)
         const visible = allSurveys.filter((s) => {
-          const restricted = (s.survey_semesters ?? []).map((x) => x.semester_id);
+          const restricted = (s.survey_sections ?? []).map((x) => x.section_id);
           return restricted.length === 0;
         });
 
@@ -211,7 +191,11 @@ export default function OrganizationDashboard() {
         try {
           await notificationsService.ensureStudentNotifications(
             user.id,
-            visible.map((s) => ({ id: s.id, title: s.title, deadline: s.deadline })),
+            visible.map((s) => ({
+              id: s.id,
+              title: s.title,
+              deadline: s.deadline,
+            })),
           );
           refetchNotifications();
         } catch (e) {
@@ -256,7 +240,9 @@ export default function OrganizationDashboard() {
         <div className="card-elevated p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm text-muted-foreground">Your organization</div>
+              <div className="text-sm text-muted-foreground">
+                Your organization
+              </div>
               <div className="text-xl font-semibold">{orgName}</div>
             </div>
             <Button variant="outline" onClick={() => window.location.reload()}>
@@ -283,7 +269,9 @@ export default function OrganizationDashboard() {
             {cards.map((s) => (
               <div key={s.id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm text-muted-foreground">Organization</div>
+                  <div className="text-sm text-muted-foreground">
+                    Organization
+                  </div>
                   <span className="text-xs rounded-full border border-border px-2 py-0.5 text-muted-foreground">
                     Assigned to you
                   </span>
@@ -306,13 +294,14 @@ export default function OrganizationDashboard() {
                     </Button>
                   ) : (
                     <Button asChild>
-                      {/* Keeping your route as-is */}
                       <Link to={`/student/survey/${s.id}`}>Answer Survey</Link>
                     </Button>
                   )}
 
                   {s.deadlineText && (
-                    <span className="text-xs text-red-600">{s.deadlineText}</span>
+                    <span className="text-xs text-red-600">
+                      {s.deadlineText}
+                    </span>
                   )}
                 </div>
               </div>
@@ -320,7 +309,10 @@ export default function OrganizationDashboard() {
           </div>
         </div>
 
-        <AlertDialog open={showExpiredDialog} onOpenChange={setShowExpiredDialog}>
+        <AlertDialog
+          open={showExpiredDialog}
+          onOpenChange={setShowExpiredDialog}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Survey expired</AlertDialogTitle>

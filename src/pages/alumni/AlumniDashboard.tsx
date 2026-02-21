@@ -1,3 +1,4 @@
+// Updated: show group label instead of raw UUID
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,7 @@ export default function AlumniDashboard() {
 
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
   const [myGroupId, setMyGroupId] = useState<string | null>(null);
+  const [myGroupLabel, setMyGroupLabel] = useState<string | null>(null);
 
   const load = async () => {
     if (!user) return;
@@ -45,30 +47,50 @@ export default function AlumniDashboard() {
     setLoading(true);
     setSurveys([]);
     setMyGroupId(null);
+    setMyGroupLabel(null);
 
-    // 1) get my alumni group
-    const { data: mem, error: memErr } = await supabase
-      .from("alumni_group_members")
-      .select("alumni_group_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // 1) Resolve alumni group ID:
+    //    - First try studentRow.alumni_group_id (students with is_alumni=true)
+    //    - Fall back to alumni_group_members table (portal alumni users)
+    let groupId: string | null = user.studentRow?.alumni_group_id ?? null;
 
-    if (memErr) {
-      console.error(memErr);
-      setLoading(false);
-      return;
+    if (!groupId) {
+      const { data: mem, error: memErr } = await supabase
+        .from("alumni_group_members")
+        .select("alumni_group_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (memErr) {
+        console.error(memErr);
+        setLoading(false);
+        return;
+      }
+
+      groupId = mem?.alumni_group_id ?? null;
     }
 
-    const groupId = mem?.alumni_group_id ?? null;
     setMyGroupId(groupId);
 
     if (!groupId) {
-      // not assigned -> no surveys
       setLoading(false);
       return;
     }
 
-    // 2) get survey ids for this group
+    // 2) Fetch the group label from alumni_groups
+    const { data: groupRow, error: groupErr } = await supabase
+      .from("alumni_groups")
+      .select("label, start_year, end_year")
+      .eq("id", groupId)
+      .maybeSingle();
+
+    if (!groupErr && groupRow) {
+      setMyGroupLabel(
+        `${groupRow.label} (${groupRow.start_year}–${groupRow.end_year})`,
+      );
+    }
+
+    // 3) get survey ids for this group
     const { data: links, error: linkErr } = await supabase
       .from("survey_alumni_groups")
       .select("survey_id")
@@ -81,7 +103,9 @@ export default function AlumniDashboard() {
       return;
     }
 
-    const surveyIds = (links ?? []).map((r: any) => r.survey_id).filter(Boolean) as string[];
+    const surveyIds = (links ?? [])
+      .map((r: any) => r.survey_id)
+      .filter(Boolean) as string[];
     if (surveyIds.length === 0) {
       setSurveys([]);
       setLoading(false);
@@ -91,7 +115,9 @@ export default function AlumniDashboard() {
     // 3) fetch published alumni surveys
     const { data: sdata, error: sErr } = await supabase
       .from("surveys")
-      .select("id,title,description,created_at,start_at,end_at,deadline,is_published,survey_type,audience")
+      .select(
+        "id,title,description,created_at,start_at,end_at,deadline,is_published,survey_type,audience",
+      )
       .in("id", surveyIds)
       .eq("is_published", true)
       .eq("survey_type", "alumni")
@@ -106,7 +132,7 @@ export default function AlumniDashboard() {
 
     const rows = (sdata ?? []) as SurveyRow[];
 
-    // optional: filter by time window
+    // filter by time window
     const visible = rows.filter(isSurveyOpenNow);
 
     setSurveys(visible);
@@ -131,21 +157,33 @@ export default function AlumniDashboard() {
       <Header />
       <main className="container py-8 space-y-6">
         <div>
-          <h1 className="text-3xl font-semibold text-foreground">Alumni Dashboard</h1>
-          <p className="mt-1 text-muted-foreground">You can answer surveys shared for your alumni group.</p>
+          <h1 className="text-3xl font-semibold text-foreground">
+            Alumni Dashboard
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            You can answer surveys shared for your alumni group.
+          </p>
         </div>
 
         <div className="card-elevated p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-sm text-muted-foreground">Account</div>
-              <div className="text-xl font-semibold">{user?.name ?? "Alumni"}</div>
+              <div className="text-xl font-semibold">
+                {user?.name ?? "Alumni"}
+              </div>
               <div className="mt-1 text-sm text-muted-foreground">
                 Group:{" "}
-                {myGroupId ? (
-                  <code>{myGroupId}</code>
+                {myGroupLabel ? (
+                  <span className="font-medium text-foreground">
+                    {myGroupLabel}
+                  </span>
+                ) : myGroupId ? (
+                  <span className="text-muted-foreground">Loading...</span>
                 ) : (
-                  <span className="text-destructive">Not assigned to any alumni group yet</span>
+                  <span className="text-destructive">
+                    Not assigned to any alumni group yet
+                  </span>
                 )}
               </div>
             </div>
@@ -159,17 +197,22 @@ export default function AlumniDashboard() {
         <div className="card-elevated p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Available Surveys</h2>
-            {loading && <span className="text-sm text-muted-foreground">Loading...</span>}
+            {loading && (
+              <span className="text-sm text-muted-foreground">Loading...</span>
+            )}
           </div>
 
           {!loading && !myGroupId && (
             <div className="text-sm text-muted-foreground">
-              You are not assigned to an alumni group. Please contact admin to assign you (e.g. 2024–2025).
+              You are not assigned to an alumni group. Please contact admin to
+              assign you (e.g. 2024–2025).
             </div>
           )}
 
           {!loading && myGroupId && cards.length === 0 && (
-            <div className="text-sm text-muted-foreground">No surveys available right now.</div>
+            <div className="text-sm text-muted-foreground">
+              No surveys available right now.
+            </div>
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -182,9 +225,15 @@ export default function AlumniDashboard() {
                   </span>
                 </div>
 
-                <div className="mt-1 text-lg font-semibold text-foreground">{s.title}</div>
+                <div className="mt-1 text-lg font-semibold text-foreground">
+                  {s.title}
+                </div>
 
-                {s.description && <div className="mt-2 text-sm text-muted-foreground">{s.description}</div>}
+                {s.description && (
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    {s.description}
+                  </div>
+                )}
 
                 <div className="mt-4">
                   <Button asChild>

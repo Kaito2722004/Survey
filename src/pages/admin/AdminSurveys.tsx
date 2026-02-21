@@ -29,29 +29,45 @@ import {
   SlidersHorizontal,
   X,
   FileText,
-  ChevronRight,
   RefreshCw,
 } from "lucide-react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
+// ─── Types ───────────────────────────────────────────────────────────────────
 type SurveyRow = {
   id: string;
   title: string;
   description: string | null;
   is_published: boolean;
-  response_count: number | null;
+  response_count: number;
   created_at: string;
-  semester_id: string | null;
+  section_id: string | null;
   teacher_id: string | null;
+  target_role: string | null;
+  audience: string | null;
+  survey_type: string | null;
   start_at?: string | null;
   end_at?: string | null;
 };
 
-type SemesterRow = { id: string; name: string };
-type SurveyKindFilter = "all" | "sem_tr" | "general";
+type SectionRow = {
+  id: string;
+  sem: number;
+  year_level: number;
+  program: string;
+  specialization: string;
+};
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type SurveyKindFilter =
+  | "all"
+  | "section_tr"
+  | "general"
+  | "organization"
+  | "alumni";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function sectionLabel(s: SectionRow) {
+  return `Y${s.year_level} ${s.specialization} — Sem ${s.sem} (${s.program})`;
+}
 
 function formatDate(val: string) {
   try {
@@ -75,8 +91,43 @@ function dateOnlyToRange(val: string): { start: Date; end: Date } | null {
   };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function getSurveyKind(s: SurveyRow): SurveyKindFilter {
+  if (s.survey_type === "alumni" || s.audience === "alumni") return "alumni";
+  if (s.target_role === "organization" || s.audience === "target_group")
+    return "organization";
+  if (s.section_id && s.teacher_id) return "section_tr";
+  return "general";
+}
 
+function getSurveyKindLabel(kind: SurveyKindFilter): string {
+  switch (kind) {
+    case "section_tr":
+      return "Section + Teacher";
+    case "general":
+      return "General";
+    case "organization":
+      return "Organization";
+    case "alumni":
+      return "Alumni";
+    default:
+      return "All";
+  }
+}
+
+function getSurveyKindBadgeClass(kind: SurveyKindFilter): string {
+  switch (kind) {
+    case "section_tr":
+      return "bg-blue-50 text-blue-700 border-blue-200";
+    case "organization":
+      return "bg-purple-50 text-purple-700 border-purple-200";
+    case "alumni":
+      return "bg-orange-50 text-orange-700 border-orange-200";
+    default:
+      return "bg-muted/50 text-muted-foreground";
+  }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 export default function AdminSurveys() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -84,8 +135,8 @@ export default function AdminSurveys() {
 
   const [loading, setLoading] = useState(true);
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
-  const [semesters, setSemesters] = useState<SemesterRow[]>([]);
-  const [semesterNameById, setSemesterNameById] = useState<Map<string, string>>(
+  const [sections, setSections] = useState<SectionRow[]>([]);
+  const [sectionLabelById, setSectionLabelById] = useState<Map<string, string>>(
     new Map(),
   );
   const [showFilters, setShowFilters] = useState(false);
@@ -93,13 +144,14 @@ export default function AdminSurveys() {
   // filters
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<SurveyKindFilter>("all");
-  const [semesterId, setSemesterId] = useState<string>("all");
-  const [fromDT, setFromDT] = useState<string>("");
-  const [toDT, setToDT] = useState<string>("");
+  const [sectionId, setSectionId] = useState("all");
+  const [fromDT, setFromDT] = useState("");
+  const [toDT, setToDT] = useState("");
 
   const hasActiveFilters =
-    kind !== "all" || semesterId !== "all" || !!fromDT || !!toDT;
+    kind !== "all" || sectionId !== "all" || !!fromDT || !!toDT;
 
+  // Ensure admin notifications
   useEffect(() => {
     if (!user?.id) return;
     const run = async () => {
@@ -124,21 +176,22 @@ export default function AdminSurveys() {
     run();
   }, [user?.id, refetchNotifications]);
 
-  const loadSemesters = async () => {
+  // Load sections
+  const loadSections = async () => {
     try {
       const { data, error } = await supabase
-        .from("semesters")
-        .select("id,name")
-        .order("name", { ascending: true });
+        .from("sections")
+        .select("id,sem,year_level,program,specialization")
+        .order("year_level", { ascending: true });
       if (error) throw error;
-      const rows = (data ?? []) as SemesterRow[];
-      setSemesters(rows);
+      const rows = (data ?? []) as SectionRow[];
+      setSections(rows);
       const m = new Map<string, string>();
-      rows.forEach((s) => m.set(s.id, s.name));
-      setSemesterNameById(m);
+      rows.forEach((s) => m.set(s.id, sectionLabel(s)));
+      setSectionLabelById(m);
     } catch (e: any) {
       console.error(e);
-      toast.error(e?.message ?? "Failed to load semesters");
+      toast.error(e?.message ?? "Failed to load sections");
     }
   };
 
@@ -148,11 +201,29 @@ export default function AdminSurveys() {
       const { data, error } = await supabase
         .from("surveys")
         .select(
-          "id,title,description,is_published,response_count,created_at,semester_id,teacher_id,start_at,end_at",
+          "id,title,description,is_published,created_at,section_id,teacher_id,target_role,audience,survey_type,start_at,end_at,survey_responses(count)",
         )
         .order("created_at", { ascending: false });
+
       if (error) throw error;
-      setSurveys((data ?? []) as unknown as SurveyRow[]);
+
+      const mapped: SurveyRow[] = (data ?? []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        is_published: row.is_published,
+        created_at: row.created_at,
+        section_id: row.section_id,
+        teacher_id: row.teacher_id,
+        target_role: row.target_role,
+        audience: row.audience,
+        survey_type: row.survey_type,
+        start_at: row.start_at,
+        end_at: row.end_at,
+        response_count: row.survey_responses?.[0]?.count ?? 0,
+      }));
+
+      setSurveys(mapped);
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message ?? "Failed to load surveys");
@@ -206,7 +277,7 @@ export default function AdminSurveys() {
   };
 
   useEffect(() => {
-    loadSemesters();
+    loadSections();
     loadSurveys();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -215,12 +286,10 @@ export default function AdminSurveys() {
     const s = search.trim().toLowerCase();
     const fromRange = dateOnlyToRange(fromDT);
     const toRange = dateOnlyToRange(toDT);
-
     return surveys.filter((x) => {
-      const isSemTr = !!x.semester_id && !!x.teacher_id;
-      if (kind === "sem_tr" && !isSemTr) return false;
-      if (kind === "general" && isSemTr) return false;
-      if (semesterId !== "all" && x.semester_id !== semesterId) return false;
+      const surveyKind = getSurveyKind(x);
+      if (kind !== "all" && surveyKind !== kind) return false;
+      if (sectionId !== "all" && x.section_id !== sectionId) return false;
       const created = new Date(x.created_at);
       if (fromRange && created < fromRange.start) return false;
       if (toRange && created > toRange.end) return false;
@@ -231,12 +300,12 @@ export default function AdminSurveys() {
         x.id.toLowerCase().includes(s)
       );
     });
-  }, [surveys, search, kind, semesterId, fromDT, toDT]);
+  }, [surveys, search, kind, sectionId, fromDT, toDT]);
 
   const clearFilters = () => {
     setSearch("");
     setKind("all");
-    setSemesterId("all");
+    setSectionId("all");
     setFromDT("");
     setToDT("");
   };
@@ -247,22 +316,29 @@ export default function AdminSurveys() {
     0,
   );
 
+  const KIND_FILTERS: SurveyKindFilter[] = [
+    "all",
+    "section_tr",
+    "general",
+    "organization",
+    "alumni",
+  ];
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container py-10 space-y-8">
+      <main className="mx-auto max-w-5xl px-4 py-8 space-y-6">
         {/* ── Page header ── */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
               Admin · Surveys
             </p>
-            <h1 className="text-4xl font-bold text-foreground tracking-tight">
+            <h1 className="text-2xl font-bold tracking-tight">
               Survey Manager
             </h1>
           </div>
-
           <Button
             onClick={() => navigate("/admin/create-survey")}
             className="self-start sm:self-auto gap-2"
@@ -282,14 +358,10 @@ export default function AdminSurveys() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="rounded-xl border border-border bg-card px-5 py-4"
+              className="rounded-xl border bg-card p-4 space-y-1"
             >
-              <div className="text-2xl font-bold text-foreground tabular-nums">
-                {stat.value}
-              </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {stat.label}
-              </div>
+              <p className="text-2xl font-bold">{stat.value}</p>
+              <p className="text-xs text-muted-foreground">{stat.label}</p>
             </div>
           ))}
         </div>
@@ -298,12 +370,12 @@ export default function AdminSurveys() {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             {/* Search */}
-            <div className="relative flex-1 min-w-[220px] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
-                className="pl-9 h-9 text-sm"
-                placeholder="Search surveys..."
+                placeholder="Search surveys…"
                 value={search}
+                className="pl-8 pr-8 h-9 text-sm"
                 onChange={(e) => setSearch(e.target.value)}
               />
               {search && (
@@ -317,23 +389,19 @@ export default function AdminSurveys() {
             </div>
 
             {/* Kind pills */}
-            <div className="flex rounded-lg border border-border overflow-hidden text-sm">
-              {(["all", "sem_tr", "general"] as SurveyKindFilter[]).map((k) => (
+            <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1 text-sm flex-wrap">
+              {KIND_FILTERS.map((k) => (
                 <button
                   key={k}
                   onClick={() => setKind(k)}
                   className={[
-                    "px-3 py-1.5 font-medium transition-colors",
+                    "px-3 py-1.5 rounded-md font-medium transition-colors",
                     kind === k
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
                   ].join(" ")}
                 >
-                  {k === "all"
-                    ? "All"
-                    : k === "sem_tr"
-                      ? "Sem + Teacher"
-                      : "General"}
+                  {getSurveyKindLabel(k)}
                 </button>
               ))}
             </div>
@@ -360,7 +428,8 @@ export default function AdminSurveys() {
             {/* Refresh */}
             <button
               onClick={loadSurveys}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+              title="Refresh"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
@@ -369,28 +438,28 @@ export default function AdminSurveys() {
 
           {/* Expanded filters panel */}
           {showFilters && (
-            <div className="rounded-xl border border-border bg-card/60 p-4 flex flex-wrap gap-4 items-end">
-              <div className="min-w-[200px]">
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  Semester
+            <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/20 px-4 py-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Section
                 </label>
-                <Select value={semesterId} onValueChange={setSemesterId}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="All semesters" />
+                <Select value={sectionId} onValueChange={setSectionId}>
+                  <SelectTrigger className="h-9 w-[220px] text-sm">
+                    <SelectValue placeholder="All sections" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All semesters</SelectItem>
-                    {semesters.map((s) => (
+                    <SelectItem value="all">All sections</SelectItem>
+                    {sections.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
-                        {s.name}
+                        {sectionLabel(s)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
                   Created from
                 </label>
                 <Input
@@ -401,8 +470,8 @@ export default function AdminSurveys() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">
                   Created to
                 </label>
                 <Input
@@ -416,7 +485,7 @@ export default function AdminSurveys() {
               {hasActiveFilters && (
                 <button
                   onClick={clearFilters}
-                  className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors pb-0.5"
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors pb-0.5"
                 >
                   <X className="h-3.5 w-3.5" />
                   Clear all
@@ -427,170 +496,142 @@ export default function AdminSurveys() {
         </div>
 
         {/* ── Results count ── */}
-        <div className="flex items-center justify-between -mt-2">
-          <p className="text-sm text-muted-foreground">
-            Showing{" "}
-            <span className="font-semibold text-foreground">
-              {filtered.length}
-            </span>{" "}
-            of {surveys.length} surveys
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Showing{" "}
+          <span className="font-medium text-foreground">{filtered.length}</span>{" "}
+          of {surveys.length} surveys
+        </p>
 
         {/* ── Survey list ── */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <div className="flex justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border py-20 flex flex-col items-center gap-3 text-center">
+          <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
             <FileText className="h-10 w-10 text-muted-foreground/40" />
-            <div className="text-base font-medium text-foreground">
-              No surveys found
-            </div>
-            <p className="text-sm text-muted-foreground max-w-xs">
+            <p className="font-medium">No surveys found</p>
+            <p className="text-sm text-muted-foreground">
               {search || hasActiveFilters
                 ? "Try adjusting your search or filters."
                 : "Create your first survey to get started."}
             </p>
             {search || hasActiveFilters ? (
-              <button
-                onClick={clearFilters}
-                className="text-sm text-primary hover:underline mt-1"
-              >
+              <Button variant="outline" size="sm" onClick={clearFilters}>
                 Clear filters
-              </button>
+              </Button>
             ) : (
               <Button
                 size="sm"
-                className="mt-2"
                 onClick={() => navigate("/admin/create-survey")}
               >
-                <Plus className="h-4 w-4 mr-1" />
                 Create Survey
               </Button>
             )}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {filtered.map((s) => {
-              const isSemTr = !!s.semester_id && !!s.teacher_id;
-              const semesterName = s.semester_id
-                ? (semesterNameById.get(s.semester_id) ?? s.semester_id)
+              const surveyKind = getSurveyKind(s);
+              const secLabel = s.section_id
+                ? (sectionLabelById.get(s.section_id) ?? s.section_id)
                 : null;
 
               return (
                 <div
                   key={s.id}
-                  className="group relative rounded-xl border border-border bg-card hover:border-primary/30 hover:bg-card/80 transition-all duration-200"
+                  className="relative rounded-xl border bg-card p-4 hover:shadow-sm transition-shadow"
                 >
-                  {/* Published left accent */}
                   {s.is_published && (
-                    <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-primary/60 ml-px" />
+                    <div className="absolute top-3 right-3">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    </div>
                   )}
 
-                  <div className="flex flex-col md:flex-row md:items-center gap-4 px-5 py-4">
-                    {/* ── Info ── */}
-                    <div className="flex-1 min-w-0 pl-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-foreground text-[15px] truncate">
-                          {s.title}
+                  {/* ── Info ── */}
+                  <div className="space-y-1 mb-3 pr-6">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-semibold leading-snug">{s.title}</h2>
+                      <span
+                        className={[
+                          "text-[11px] font-medium px-2 py-0.5 rounded-full border",
+                          s.is_published
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200",
+                        ].join(" ")}
+                      >
+                        {s.is_published ? "Published" : "Draft"}
+                      </span>
+                      <span
+                        className={[
+                          "text-[11px] font-medium px-2 py-0.5 rounded-full border",
+                          getSurveyKindBadgeClass(surveyKind),
+                        ].join(" ")}
+                      >
+                        {getSurveyKindLabel(surveyKind)}
+                      </span>
+                      {surveyKind === "section_tr" && secLabel && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+                          {secLabel}
                         </span>
-
-                        <span
-                          className={[
-                            "inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full px-2 py-0.5",
-                            s.is_published
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted text-muted-foreground",
-                          ].join(" ")}
-                        >
-                          <span
-                            className={[
-                              "w-1.5 h-1.5 rounded-full",
-                              s.is_published
-                                ? "bg-primary"
-                                : "bg-muted-foreground/50",
-                            ].join(" ")}
-                          />
-                          {s.is_published ? "Published" : "Draft"}
-                        </span>
-
-                        <span className="text-[11px] rounded-full bg-muted px-2 py-0.5 text-muted-foreground font-medium">
-                          {isSemTr ? "Sem + Teacher" : "General"}
-                        </span>
-
-                        {isSemTr && semesterName && (
-                          <span className="text-[11px] rounded-full border border-border px-2 py-0.5 text-muted-foreground">
-                            {semesterName}
-                          </span>
-                        )}
-                      </div>
-
-                      {s.description && (
-                        <p className="mt-1 text-sm text-muted-foreground line-clamp-1">
-                          {s.description}
-                        </p>
                       )}
-
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>Created {formatDate(s.created_at)}</span>
-                        <span className="opacity-30">·</span>
-                        <span className="font-medium text-foreground">
-                          {s.response_count ?? 0}{" "}
-                          {(s.response_count ?? 0) !== 1
-                            ? "responses"
-                            : "response"}
-                        </span>
-                        <span className="opacity-30">·</span>
-                        <span className="font-mono text-[10px] opacity-40">
-                          {s.id.slice(0, 8)}…
-                        </span>
-                      </div>
                     </div>
 
-                    {/* ── Actions ── */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {!s.is_published && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1.5 text-primary border-primary/30 hover:bg-primary/5 hover:border-primary/60"
-                          onClick={() => handlePublish(s.id)}
-                        >
-                          <CheckCircle className="h-3.5 w-3.5" />
-                          Publish
-                        </Button>
-                      )}
+                    {s.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {s.description}
+                      </p>
+                    )}
 
+                    <p className="text-xs text-muted-foreground">
+                      Created {formatDate(s.created_at)} · {s.response_count}{" "}
+                      {s.response_count !== 1 ? "responses" : "response"} ·{" "}
+                      {s.id.slice(0, 8)}…
+                    </p>
+                  </div>
+
+                  {/* ── Actions ── */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!s.is_published && (
                       <Button
-                        asChild
                         size="sm"
                         variant="outline"
-                        className="gap-1.5"
+                        className="gap-1.5 text-xs h-8"
+                        onClick={() => handlePublish(s.id)}
                       >
-                        <Link to={`/admin/surveys/${s.id}/edit`}>
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit
-                        </Link>
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        Publish
                       </Button>
-
-                      <Button asChild size="sm" className="gap-1.5">
-                        <Link to={`/admin/surveys/${s.id}/responses`}>
-                          <BarChart3 className="h-3.5 w-3.5" />
-                          Responses &amp; Charts
-                          <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-                        </Link>
-                      </Button>
-
-                      <button
-                        onClick={() => handleDelete(s.id)}
-                        className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title="Delete survey"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs h-8"
+                      asChild
+                    >
+                      <Link to={`/admin/surveys/${s.id}/edit`}>
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </Link>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs h-8"
+                      asChild
+                    >
+                      <Link to={`/admin/surveys/${s.id}/responses`}>
+                        <BarChart3 className="h-3.5 w-3.5" />
+                        Responses &amp; Charts
+                      </Link>
+                    </Button>
+                    <button
+                      onClick={() => handleDelete(s.id)}
+                      className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Delete survey"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
               );

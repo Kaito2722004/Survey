@@ -16,11 +16,24 @@ import {
   LayoutList,
   ShieldCheck,
   ChevronRight,
+  LucideIcon,
 } from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NavItem = {
+  step: number;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  route: string;
+  label: string;
+  highlight?: boolean; // ← optional so items without it are valid
+};
 
 // ─── Nav card config ──────────────────────────────────────────────────────────
 
-const NAV_ITEMS = [
+const NAV_ITEMS: NavItem[] = [
   {
     step: 1,
     title: "Students → Semester",
@@ -85,7 +98,15 @@ const NAV_ITEMS = [
     route: "/admin/users",
     label: "Manage Users",
   },
-] as const;
+  {
+    step: 8,
+    title: "Organization Requests",
+    description: "View and manage organization account requests.",
+    icon: Users,
+    route: "/admin/org-requests",
+    label: "Organization Requests",
+  },
+];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
