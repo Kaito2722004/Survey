@@ -5,7 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, Lock, Mail, X, KeyRound } from "lucide-react";
+import {
+  Loader2,
+  Lock,
+  Mail,
+  X,
+  KeyRound,
+  Users,
+  Building2,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 const Login = () => {
@@ -17,25 +25,31 @@ const Login = () => {
 
   // ── Forgot password modal state ──
   const [showForgot, setShowForgot] = useState(false);
+  const [accountType, setAccountType] = useState<"student" | "organization">(
+    "student",
+  );
+
+  // Student fields
   const [fpEmail, setFpEmail] = useState("");
   const [fpNewPassword, setFpNewPassword] = useState("");
   const [fpConfirm, setFpConfirm] = useState("");
   const [fpLoading, setFpLoading] = useState(false);
 
-  // Auto-redirect based on role once user is set
+  // Org fields
+  const [orgEmail, setOrgEmail] = useState("");
+  const [orgLoading, setOrgLoading] = useState(false);
+  const [orgSent, setOrgSent] = useState(false);
+
+  // Auto-redirect based on role
   useEffect(() => {
     if (!user) return;
-    if (user.isAdmin || user.role === "admin") {
+    if (user.isAdmin || user.role === "admin")
       navigate("/admin", { replace: true });
-    } else if (user.role === "alumni") {
-      navigate("/alumni", { replace: true });
-    } else if (user.role === "organization") {
+    else if (user.role === "alumni") navigate("/alumni", { replace: true });
+    else if (user.role === "organization")
       navigate("/organization", { replace: true });
-    } else if (user.role === "student") {
-      navigate("/student", { replace: true });
-    } else {
-      navigate("/dashboard", { replace: true });
-    }
+    else if (user.role === "student") navigate("/student", { replace: true });
+    else navigate("/dashboard", { replace: true });
   }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -50,12 +64,8 @@ const Login = () => {
       try {
         await studentLogin(email, password);
         isStudent = true;
-      } catch {
-        // Not a student — try admin/org
-      }
-      if (!isStudent) {
-        await login(email, password);
-      }
+      } catch {}
+      if (!isStudent) await login(email, password);
       toast.success("Welcome back!");
     } catch (error: any) {
       toast.error(error?.message ?? "Invalid email or password");
@@ -64,12 +74,21 @@ const Login = () => {
     }
   };
 
-  /* =======================
-     Forgot password submit
-  ======================= */
-  const handleForgotSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const closeForgot = () => {
+    setShowForgot(false);
+    setAccountType("student");
+    setFpEmail("");
+    setFpNewPassword("");
+    setFpConfirm("");
+    setOrgEmail("");
+    setOrgSent(false);
+  };
 
+  /* =======================
+     Student reset (admin approval)
+  ======================= */
+  const handleStudentReset = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!fpEmail || !fpNewPassword || !fpConfirm) {
       toast.error("Please fill in all fields.");
       return;
@@ -85,7 +104,6 @@ const Login = () => {
 
     setFpLoading(true);
     try {
-      // Find student by email
       const { data: student, error: studentErr } = await supabase
         .from("students")
         .select("id")
@@ -95,14 +113,12 @@ const Login = () => {
       if (studentErr) throw studentErr;
       if (!student) {
         toast.error("No student account found with that email.");
-        setFpLoading(false);
         return;
       }
 
-      // Check for existing pending request
       const { data: existing } = await supabase
         .from("password_resets")
-        .select("id,status")
+        .select("id")
         .eq("student_id", student.id)
         .eq("status", "pending")
         .maybeSingle();
@@ -111,11 +127,9 @@ const Login = () => {
         toast.info(
           "You already have a pending reset request. Please wait for admin approval.",
         );
-        setFpLoading(false);
         return;
       }
 
-      // Insert new password reset request
       const { error: insertErr } = await supabase
         .from("password_resets")
         .insert({
@@ -129,22 +143,37 @@ const Login = () => {
       toast.success(
         "Reset request submitted! An admin will review and approve it shortly.",
       );
-      setShowForgot(false);
-      setFpEmail("");
-      setFpNewPassword("");
-      setFpConfirm("");
+      closeForgot();
     } catch (e: any) {
-      toast.error(e?.message ?? "Failed to submit reset request.");
+      toast.error(e?.message ?? "Failed to submit request.");
     } finally {
       setFpLoading(false);
     }
   };
 
-  const closeForgot = () => {
-    setShowForgot(false);
-    setFpEmail("");
-    setFpNewPassword("");
-    setFpConfirm("");
+  /* =======================
+     Org reset (Supabase email)
+  ======================= */
+  const handleOrgReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orgEmail.trim()) {
+      toast.error("Enter your organization email.");
+      return;
+    }
+
+    setOrgLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        orgEmail.trim().toLowerCase(),
+        { redirectTo: `${window.location.origin}/reset-password` },
+      );
+      if (error) throw error;
+      setOrgSent(true);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to send reset email.");
+    } finally {
+      setOrgLoading(false);
+    }
   };
 
   return (
@@ -220,7 +249,6 @@ const Login = () => {
               </Button>
             </form>
 
-            {/* Dev quick login */}
             {import.meta.env.DEV && (
               <div className="mt-6 rounded-lg border border-dashed border-border p-3 space-y-2">
                 <p className="text-xs font-medium text-muted-foreground text-center uppercase tracking-wide">
@@ -257,13 +285,10 @@ const Login = () => {
       {/* ── Forgot Password Modal ── */}
       {showForgot && (
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
             onClick={closeForgot}
           />
-
-          {/* Modal */}
           <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-4">
             <div className="card-elevated p-6 space-y-5 shadow-xl">
               {/* Header */}
@@ -282,82 +307,195 @@ const Login = () => {
                 </button>
               </div>
 
-              {/* Info banner */}
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                <p className="text-sm text-amber-800">
-                  Your request will be reviewed by an admin. Once approved, your
-                  password will be updated.
-                </p>
+              {/* ── Account type selector ── */}
+              <div className="space-y-1.5">
+                <Label>Account type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountType("student");
+                      setOrgSent(false);
+                    }}
+                    className={[
+                      "flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                      accountType === "student"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted/40",
+                    ].join(" ")}
+                  >
+                    <Users className="h-4 w-4" />
+                    Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountType("organization");
+                      setOrgSent(false);
+                    }}
+                    className={[
+                      "flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all",
+                      accountType === "organization"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted/40",
+                    ].join(" ")}
+                  >
+                    <Building2 className="h-4 w-4" />
+                    Organization
+                  </button>
+                </div>
               </div>
 
-              <form onSubmit={handleForgotSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="fp-email">Your student email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="fp-email"
-                      type="email"
-                      placeholder="you@uit.edu.mm"
-                      value={fpEmail}
-                      onChange={(e) => setFpEmail(e.target.value)}
-                      className="pl-10"
-                    />
+              {/* ── Student form ── */}
+              {accountType === "student" && (
+                <>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm text-amber-800">
+                      Your request will be reviewed by an admin. Once approved,
+                      your password will be updated.
+                    </p>
                   </div>
-                </div>
+                  <form onSubmit={handleStudentReset} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="fp-email">Student email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="fp-email"
+                          type="email"
+                          placeholder="you@uit.edu.mm"
+                          value={fpEmail}
+                          onChange={(e) => setFpEmail(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="fp-new">New password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="fp-new"
+                          type="password"
+                          placeholder="Min 6 characters"
+                          value={fpNewPassword}
+                          onChange={(e) => setFpNewPassword(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="fp-confirm">Confirm new password</Label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="fp-confirm"
+                          type="password"
+                          placeholder="Repeat password"
+                          value={fpConfirm}
+                          onChange={(e) => setFpConfirm(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={closeForgot}
+                        disabled={fpLoading}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="flex-1"
+                        disabled={fpLoading}
+                      >
+                        {fpLoading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Submitting...
+                          </>
+                        ) : (
+                          "Submit Request"
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </>
+              )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="fp-new">New password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="fp-new"
-                      type="password"
-                      placeholder="New password (min 6 chars)"
-                      value={fpNewPassword}
-                      onChange={(e) => setFpNewPassword(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="fp-confirm">Confirm new password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="fp-confirm"
-                      type="password"
-                      placeholder="Repeat new password"
-                      value={fpConfirm}
-                      onChange={(e) => setFpConfirm(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={closeForgot}
-                    disabled={fpLoading}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" className="flex-1" disabled={fpLoading}>
-                    {fpLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Submitting...
-                      </>
-                    ) : (
-                      "Submit Request"
-                    )}
-                  </Button>
-                </div>
-              </form>
+              {/* ── Organization form ── */}
+              {accountType === "organization" && (
+                <>
+                  {!orgSent ? (
+                    <form onSubmit={handleOrgReset} className="space-y-4">
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                        <p className="text-sm text-blue-800">
+                          A password reset link will be sent to your
+                          organization email address.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="org-email">Organization email</Label>
+                        <div className="relative">
+                          <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            id="org-email"
+                            type="email"
+                            placeholder="your@organization.com"
+                            value={orgEmail}
+                            onChange={(e) => setOrgEmail(e.target.value)}
+                            className="pl-10"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={closeForgot}
+                          disabled={orgLoading}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          className="flex-1"
+                          disabled={orgLoading}
+                        >
+                          {orgLoading ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Sending...
+                            </>
+                          ) : (
+                            "Send Reset Link"
+                          )}
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-4 text-center space-y-1">
+                        <p className="text-sm font-medium text-green-800">
+                          Reset link sent!
+                        </p>
+                        <p className="text-xs text-green-700">
+                          Check <strong>{orgEmail}</strong> and follow the link
+                          to set a new password.
+                        </p>
+                      </div>
+                      <Button className="w-full" onClick={closeForgot}>
+                        Done
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </>
