@@ -175,7 +175,7 @@ export default function SurveyEditor() {
     const ratingQuestion: Question = {
       id: crypto.randomUUID(),
       type: "multiple_choice",
-      title: "Overall teaching effectiveness",
+      title: "Question Title",
       required: true,
       options: ["1", "2", "3", "4", "5"].map((t, i) => ({
         id: `opt-${i}`,
