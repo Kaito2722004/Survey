@@ -11,6 +11,7 @@ import Index from "./pages/public/Index";
 import Login from "./pages/public/Login";
 import Signup from "./pages/public/Signup";
 import NotFound from "./pages/public/NotFound";
+import ResetPassword from "./pages/public/ResetPassword";
 
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminSemesterTeachers from "./pages/admin/AdminSemesterTeachers";
@@ -118,6 +119,7 @@ const AppRoutes = () => (
     <Route path="/" element={<Index />} />
     <Route path="/login" element={<Login />} />
     <Route path="/signup" element={<Signup />} />
+    <Route path="/reset-password" element={<ResetPassword />} />
 
     {/* Role redirect */}
     <Route
