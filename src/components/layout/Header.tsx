@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Menu,
   X,
+  KeyRound,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { NotificationBell } from "@/components/layout/NotificationBell";
@@ -190,6 +191,13 @@ function SidebarContent({ onClose }: SidebarContentProps) {
                 icon={Users}
                 label="Org Requests"
                 active={is("/admin/org-requests")}
+                onClick={onClose}
+              />
+              <NavLink
+                to="/admin/password-resets"
+                icon={KeyRound}
+                label="Password Resets"
+                active={is("/admin/password-resets")}
                 onClick={onClose}
               />
               <NavLink

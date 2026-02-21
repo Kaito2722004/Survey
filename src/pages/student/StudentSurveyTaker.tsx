@@ -197,7 +197,7 @@ export default function StudentSurveyTaker() {
 
   if (isExpired) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background md:pl-56">
         <Header />
         <div className="container py-10 flex items-center justify-center">
           <div className="card-elevated p-8 max-w-md w-full text-center">
