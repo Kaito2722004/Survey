@@ -22,6 +22,7 @@ import SurveyEditor from "./pages/admin/SurveyEditor";
 import AdminAlumni from "./pages/admin/AdminAlumni";
 import AdminSurveyAnalytics from "./pages/admin/AdminSurveyAnalytics";
 import AdminGeneralChart from "@/components/charts/AdminGeneralChart";
+import AdminPasswordResets from "./pages/admin/AdminPasswordResets";
 import AdminOrganizationRequests from "./pages/admin/AdminOrganizationRequests";
 
 import StudentDashboard from "./pages/student/StudentDashboard";
@@ -158,6 +159,14 @@ const AppRoutes = () => (
       element={
         <AdminRoute>
           <AdminOrganizationRequests />
+        </AdminRoute>
+      }
+    />
+    <Route
+      path="/admin/password-resets"
+      element={
+        <AdminRoute>
+          <AdminPasswordResets />
         </AdminRoute>
       }
     />

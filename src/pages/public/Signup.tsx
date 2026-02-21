@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Header } from "@/components/layout/Header";
 import { toast } from "sonner";
 import { Loader2, Mail, Lock, User, CheckCircle2 } from "lucide-react";
 
@@ -71,7 +70,6 @@ const Signup = () => {
   if (submitted) {
     return (
       <div className="min-h-screen bg-background">
-        <Header />
         <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
           <div className="w-full max-w-md animate-slide-up">
             <div className="card-elevated p-8 text-center">
@@ -105,8 +103,6 @@ const Signup = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
-
       <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-12">
         <div className="w-full max-w-md animate-slide-up">
           <div className="card-elevated p-8">
