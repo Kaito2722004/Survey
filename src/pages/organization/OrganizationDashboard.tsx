@@ -61,6 +61,7 @@ export default function OrganizationDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
+  const [submittedSurveyIds, setSubmittedSurveyIds] = useState<Set<string>>(new Set());
   const [showExpiredDialog, setShowExpiredDialog] = useState(false);
   const [orgName, setOrgName] = useState<string>("Organization");
 
@@ -85,10 +86,8 @@ export default function OrganizationDashboard() {
 
         if (profileErr || !profile) throw profileErr;
 
-        const myEmail = (profile.email ?? "").toLowerCase();
         const myOrgId = profile.organization_id;
 
-        console.log("Derived myEmail:", myEmail);
         console.log("Derived myOrgId:", myOrgId);
 
         // Step 2: Show org name
@@ -176,8 +175,6 @@ export default function OrganizationDashboard() {
         (all ?? []).forEach((s: any) => map.set(s.id, s as SurveyRow));
         const allSurveys = Array.from(map.values());
 
-        console.log("Step 6 allSurveys (deduped):", allSurveys);
-
         const visible = allSurveys.filter((s) => {
           const restricted = (s.survey_sections ?? []).map((x) => x.section_id);
           return restricted.length === 0;
@@ -186,6 +183,23 @@ export default function OrganizationDashboard() {
         console.log("Step 6 visible after semester filter:", visible);
 
         setSurveys(visible);
+
+        // Step 7: Check which surveys the current user has already submitted
+        if (visible.length > 0) {
+          const { data: existingResponses, error: responsesErr } = await supabase
+            .from("survey_responses")
+            .select("survey_id")
+            .eq("user_id", user.id)
+            .in("survey_id", visible.map((s) => s.id));
+
+          console.log("Step 7 existingResponses:", existingResponses, "error:", responsesErr);
+
+          if (!responsesErr && existingResponses) {
+            setSubmittedSurveyIds(
+              new Set(existingResponses.map((r) => r.survey_id)),
+            );
+          }
+        }
 
         // Notifications
         try {
@@ -221,8 +235,9 @@ export default function OrganizationDashboard() {
       ...s,
       deadlineText: getDeadlineText(s.deadline),
       expired: isExpired(s.deadline),
+      alreadySubmitted: submittedSurveyIds.has(s.id),
     }));
-  }, [surveys]);
+  }, [surveys, submittedSurveyIds]);
 
   return (
     <div className="min-h-screen bg-background md:pl-56">
@@ -288,11 +303,18 @@ export default function OrganizationDashboard() {
                 )}
 
                 <div className="mt-4 flex items-center justify-between gap-2">
-                  {s.expired ? (
+                  {s.alreadySubmitted ? (
+                    // Already submitted — block re-submission entirely
+                    <Button disabled variant="outline">
+                      Already Submitted
+                    </Button>
+                  ) : s.expired ? (
+                    // Expired — show dialog when clicked
                     <Button onClick={() => setShowExpiredDialog(true)}>
                       Answer Survey
                     </Button>
                   ) : (
+                    // Normal — navigate to survey
                     <Button asChild>
                       <Link to={`/student/survey/${s.id}`}>Answer Survey</Link>
                     </Button>

@@ -1,4 +1,4 @@
-// Updated: show group label instead of raw UUID
+// Updated: show group label instead of raw UUID + one submission per survey
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { useAuth } from "@/contexts/AuthContext";
@@ -77,6 +77,7 @@ export default function AlumniDashboard() {
   const [loading, setLoading] = useState(true);
 
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
+  const [submittedSurveyIds, setSubmittedSurveyIds] = useState<Set<string>>(new Set());
   const [myGroupId, setMyGroupId] = useState<string | null>(null);
   const [myGroupLabel, setMyGroupLabel] = useState<string | null>(null);
   const [showExpiredDialog, setShowExpiredDialog] = useState(false);
@@ -86,12 +87,11 @@ export default function AlumniDashboard() {
 
     setLoading(true);
     setSurveys([]);
+    setSubmittedSurveyIds(new Set());
     setMyGroupId(null);
     setMyGroupLabel(null);
 
-    // 1) Resolve alumni group ID:
-    //    - First try studentRow.alumni_group_id (students with is_alumni=true)
-    //    - Fall back to alumni_group_members table (portal alumni users)
+    // 1) Resolve alumni group ID
     let groupId: string | null = user.studentRow?.alumni_group_id ?? null;
 
     if (!groupId) {
@@ -146,13 +146,14 @@ export default function AlumniDashboard() {
     const surveyIds = (links ?? [])
       .map((r: any) => r.survey_id)
       .filter(Boolean) as string[];
+
     if (surveyIds.length === 0) {
       setSurveys([]);
       setLoading(false);
       return;
     }
 
-    // 3) fetch published alumni surveys
+    // 4) fetch published alumni surveys
     const { data: sdata, error: sErr } = await supabase
       .from("surveys")
       .select(
@@ -171,11 +172,52 @@ export default function AlumniDashboard() {
     }
 
     const rows = (sdata ?? []) as SurveyRow[];
-
-    // show all surveys; deadline/expired state shown on cards (same as Student/Organization)
     setSurveys(rows);
 
-    // Same notification logic as Student/Organization: new survey, 1hr to deadline, expired
+    // 5) Check which surveys the current user already submitted
+    //    Match on user_id OR student_id (alumni may be stored either way)
+    if (rows.length > 0) {
+      const surveyIdList = rows.map((s) => s.id);
+
+      // Try user_id match first
+      const { data: byUserId } = await supabase
+        .from("survey_responses")
+        .select("survey_id")
+        .eq("user_id", user.id)
+        .in("survey_id", surveyIdList);
+
+      // Also try student_id match — use studentRow.id from user context first,
+      // then fall back to DB lookup by email
+      let resolvedStudentId: string | null = (user as any).studentRow?.id ?? null;
+      if (!resolvedStudentId) {
+        const { data: sRow } = await supabase
+          .from("students")
+          .select("id")
+          .eq("email", (user as any).email ?? "")
+          .maybeSingle();
+        resolvedStudentId = sRow?.id ?? null;
+      }
+
+      let byStudentId: { survey_id: string }[] = [];
+      if (resolvedStudentId) {
+        const { data } = await supabase
+          .from("survey_responses")
+          .select("survey_id")
+          .eq("student_id", resolvedStudentId)
+          .in("survey_id", surveyIdList);
+        byStudentId = data ?? [];
+      }
+
+      const allSubmitted = [
+        ...(byUserId ?? []),
+        ...byStudentId,
+      ].map((r) => r.survey_id);
+
+      console.log("[AlumniDashboard] submitted survey ids:", allSubmitted);
+      setSubmittedSurveyIds(new Set(allSubmitted));
+    }
+
+    // Notifications
     if (user?.id && rows.length > 0) {
       try {
         await notificationsService.ensureStudentNotifications(
@@ -210,8 +252,9 @@ export default function AlumniDashboard() {
       deadlineText: getDeadlineText(s.deadline),
       expired: isExpired(s.deadline),
       openNow: isSurveyOpenNow(s),
+      alreadySubmitted: submittedSurveyIds.has(s.id),
     }));
-  }, [surveys]);
+  }, [surveys, submittedSurveyIds]);
 
   return (
     <div className="min-h-screen bg-background md:pl-56">
@@ -297,7 +340,11 @@ export default function AlumniDashboard() {
                 )}
 
                 <div className="mt-4 flex items-center justify-between gap-2">
-                  {s.expired ? (
+                  {s.alreadySubmitted ? (
+                    <Button disabled variant="outline">
+                      Already Submitted
+                    </Button>
+                  ) : s.expired ? (
                     <Button onClick={() => setShowExpiredDialog(true)}>
                       Answer Survey
                     </Button>

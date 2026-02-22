@@ -74,7 +74,7 @@ export default function AlumniSurveyTaker() {
 
       const access = surveyRow as SurveyAccessRow;
 
-      // if published alumni survey but expired (deadline passed), show dedicated expired message
+      // Expired check
       if (
         access.is_published &&
         access.survey_type === "alumni" &&
@@ -87,7 +87,7 @@ export default function AlumniSurveyTaker() {
         return;
       }
 
-      // must be published + alumni type + open now
+      // Must be published + alumni type + open now
       if (
         !access.is_published ||
         access.survey_type !== "alumni" ||
@@ -98,9 +98,7 @@ export default function AlumniSurveyTaker() {
         return;
       }
 
-      // 2) Resolve alumni group ID:
-      //    - First try studentRow.alumni_group_id (students with is_alumni=true)
-      //    - Fall back to alumni_group_members table (portal alumni users)
+      // 2) Resolve alumni group ID
       let myGroupId: string | null = user.studentRow?.alumni_group_id ?? null;
 
       if (!myGroupId) {
@@ -127,7 +125,7 @@ export default function AlumniSurveyTaker() {
         return;
       }
 
-      // 3) check link survey -> my group
+      // 3) Check link survey -> my group
       const { data: link, error: linkErr } = await supabase
         .from("survey_alumni_groups")
         .select("id")
@@ -145,6 +143,22 @@ export default function AlumniSurveyTaker() {
 
       if (!link) {
         setIsAllowed(false);
+        setIsLoadingSurvey(false);
+        return;
+      }
+
+      // 4) Check if user already submitted this survey
+      const { data: existing, error: existingErr } = await supabase
+        .from("survey_responses")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("survey_id", id)
+        .maybeSingle();
+
+      if (!existingErr && existing) {
+        // Already submitted — show the thank-you screen immediately
+        setIsSubmitted(true);
+        setIsAllowed(true);
         setIsLoadingSurvey(false);
         return;
       }
@@ -292,29 +306,6 @@ export default function AlumniSurveyTaker() {
     );
   }
 
-  if (!survey) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="container py-10 flex items-center justify-center">
-          <div className="text-center">
-            <div className="mb-4 flex justify-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
-                <FileText className="h-8 w-8 text-muted-foreground" />
-              </div>
-            </div>
-            <h1 className="mb-2 text-xl font-semibold text-foreground">
-              Survey Not Found
-            </h1>
-            <p className="text-muted-foreground">
-              This survey doesn't exist or has been deleted.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (isSubmitted) {
     return (
       <div className="min-h-screen bg-background">
@@ -334,6 +325,29 @@ export default function AlumniSurveyTaker() {
                 Your response has been recorded successfully.
               </p>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!survey) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container py-10 flex items-center justify-center">
+          <div className="text-center">
+            <div className="mb-4 flex justify-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
+                <FileText className="h-8 w-8 text-muted-foreground" />
+              </div>
+            </div>
+            <h1 className="mb-2 text-xl font-semibold text-foreground">
+              Survey Not Found
+            </h1>
+            <p className="text-muted-foreground">
+              This survey doesn't exist or has been deleted.
+            </p>
           </div>
         </div>
       </div>
