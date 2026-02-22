@@ -108,6 +108,21 @@ export default function AdminCreateSurvey() {
   const [deadline, setDeadline] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Minimum datetime for deadline picker (no past days or past times)
+  const [minDeadlineTick, setMinDeadlineTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(
+      () => setMinDeadlineTick((t) => t + 1),
+      60 * 1000,
+    );
+    return () => clearInterval(id);
+  }, []);
+  const minDeadline = useMemo(() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }, [minDeadlineTick]);
+
   // Load sections
   useEffect(() => {
     (async () => {
@@ -209,6 +224,14 @@ export default function AdminCreateSurvey() {
       return toast.error("Select at least 1 target group.");
     if (surveyType === "alumni" && !selectedAlumniGroupId)
       return toast.error("Select an alumni year group.");
+
+    if (deadline.trim()) {
+      const chosen = new Date(deadline.trim());
+      if (chosen.getTime() < Date.now()) {
+        toast.error("Deadline must be today or a future date and time.");
+        return;
+      }
+    }
 
     setCreating(true);
     try {
@@ -646,7 +669,23 @@ export default function AdminCreateSurvey() {
               <Input
                 type="datetime-local"
                 value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (!value) {
+                    setDeadline("");
+                    return;
+                  }
+                  const chosen = new Date(value);
+                  if (chosen.getTime() < Date.now()) {
+                    toast.error(
+                      "You can't set a past time. It's already past that hour today—please choose a time from now onwards.",
+                    );
+                    setDeadline("");
+                    return;
+                  }
+                  setDeadline(value);
+                }}
+                min={minDeadline}
                 className="text-sm w-auto"
               />
               <p className="text-xs text-muted-foreground">

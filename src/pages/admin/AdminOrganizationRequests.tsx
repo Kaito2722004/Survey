@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { Header } from "@/components/layout/Header";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/contexts/NotificationsContext";
+import { notificationsService } from "@/services/notifications";
 
 type OrgRequest = {
   id: string;
@@ -31,9 +34,19 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
 };
 
 export default function AdminOrganizationRequests() {
+  const { user } = useAuth();
+  const { refetch: refetchNotifications } = useNotifications();
   const [requests, setRequests] = useState<OrgRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    notificationsService
+      .ensureOrgRequestNotification(user.id)
+      .then(() => refetchNotifications())
+      .catch((e) => console.error("Ensure org request notification:", e));
+  }, [user?.id, refetchNotifications]);
 
   const load = async () => {
     setLoading(true);

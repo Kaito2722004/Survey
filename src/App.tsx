@@ -6,6 +6,9 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SurveyProvider } from "@/contexts/SurveyContext";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { useLocation } from "react-router-dom";
 
 import Index from "./pages/public/Index";
 import Login from "./pages/public/Login";
@@ -38,6 +41,19 @@ import AdminOrgTargetManager from "./pages/admin/AdminOrgTargetManager";
 import AdminUsers from "./pages/admin/AdminUsers";
 
 const queryClient = new QueryClient();
+
+// Show floating theme toggle on public pages that don't use the sidebar Header
+const PUBLIC_PATHS = ["/", "/login", "/signup", "/reset-password"];
+function ThemeToggleFloating() {
+  const location = useLocation();
+  const isPublic = PUBLIC_PATHS.includes(location.pathname);
+  if (!isPublic) return null;
+  return (
+    <div className="fixed top-4 right-4 z-50 md:top-5 md:right-5">
+      <ThemeToggle className="shadow-lg" />
+    </div>
+  );
+}
 
 const LoadingScreen = () => (
   <div className="flex min-h-screen items-center justify-center bg-background">
@@ -312,13 +328,16 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AuthProvider>
-          <SurveyProvider>
-            <NotificationsProvider>
-              <AppRoutes />
-            </NotificationsProvider>
-          </SurveyProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <ThemeToggleFloating />
+          <AuthProvider>
+            <SurveyProvider>
+              <NotificationsProvider>
+                <AppRoutes />
+              </NotificationsProvider>
+            </SurveyProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

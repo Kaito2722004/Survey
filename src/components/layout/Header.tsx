@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { NotificationBell } from "@/components/layout/NotificationBell";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { useState, useRef, useEffect } from "react";
 
 // ─── Nav link helper ──────────────────────────────────────────────────────────
@@ -224,8 +225,9 @@ function SidebarContent({ onClose }: SidebarContentProps) {
       <div className="border-t border-border px-3 py-3">
         {user ? (
           <div className="relative" ref={menuRef}>
-            {/* Notification bell sits ABOVE the user button, outside it */}
-            <div className="flex justify-end px-1 pb-1">
+            {/* Theme toggle (left) and notification bell (right) */}
+            <div className="flex items-center justify-between gap-2 px-1 pb-2">
+              <ThemeToggle className="flex-shrink-0" />
               <NotificationBell />
             </div>
 
@@ -280,6 +282,9 @@ function SidebarContent({ onClose }: SidebarContentProps) {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
+            <div className="flex justify-center pb-2">
+              <ThemeToggle />
+            </div>
             <Link
               to="/login"
               className="w-full text-center px-3 py-2 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"

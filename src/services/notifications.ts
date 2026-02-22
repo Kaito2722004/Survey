@@ -5,7 +5,8 @@ export type NotificationType =
   | "survey_deadline_1h"
   | "survey_expired"
   | "survey_completed"
-  | "survey_published";
+  | "survey_published"
+  | "org_request";
 
 export type NotificationRow = {
   id: string;
@@ -159,6 +160,53 @@ export const notificationsService = {
         }
       }
     }
+  },
+
+  /**
+   * Ensure admin has an "org_request" notification if there are pending
+   * organization requests they haven't been notified about yet.
+   */
+  async ensureOrgRequestNotification(adminUserId: string): Promise<void> {
+    const { data: pending } = await supabase
+      .from("organization_requests")
+      .select("id, requested_at")
+      .eq("status", "pending")
+      .order("requested_at", { ascending: false })
+      .limit(1);
+
+    if (!pending?.length) return;
+
+    const latestRequestAt = pending[0].requested_at;
+
+    const { data: existing } = await supabase
+      .from("notifications")
+      .select("id, created_at")
+      .eq("user_id", adminUserId)
+      .eq("type", "org_request")
+      .is("read_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing && new Date(existing.created_at) >= new Date(latestRequestAt))
+      return;
+
+    const { count } = await supabase
+      .from("organization_requests")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "pending");
+
+    const n = Number(count ?? 0);
+    await this.create({
+      user_id: adminUserId,
+      type: "org_request",
+      survey_id: null,
+      title: "New organization request",
+      message:
+        n === 1
+          ? "1 organization has requested access."
+          : `${n} organizations have requested access.`,
+    });
   },
 
   /**
