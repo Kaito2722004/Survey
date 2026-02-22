@@ -130,6 +130,7 @@ export default function AdminDashboard() {
             deadline: s.deadline,
           })),
         );
+        await notificationsService.ensureOrgRequestNotification(user.id);
         refetchNotifications();
       } catch (e) {
         console.error("Ensure admin notifications:", e);

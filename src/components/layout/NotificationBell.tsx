@@ -15,18 +15,24 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 function getNotificationLink(
   n: NotificationRow,
-  isAdmin: boolean
+  isAdmin: boolean,
+  role: string | null
 ): string | null {
-  if (!n.survey_id) return null;
   if (isAdmin) {
-    return `/admin/surveys/${n.survey_id}/analytics`;
+    if (n.type === "org_request") return "/admin/org-requests";
+    if (n.survey_id)
+      return `/admin/surveys/${n.survey_id}/responses?tab=responses`;
+    return null;
   }
   if (
-    n.type === "new_survey" ||
-    n.type === "survey_deadline_1h" ||
-    n.type === "survey_expired"
+    n.survey_id &&
+    (n.type === "new_survey" ||
+      n.type === "survey_deadline_1h" ||
+      n.type === "survey_expired")
   ) {
-    return `/student/survey/${n.survey_id}`;
+    return role === "alumni"
+      ? `/alumni/survey/${n.survey_id}`
+      : `/student/survey/${n.survey_id}`;
   }
   return null;
 }
@@ -45,7 +51,7 @@ export function NotificationBell() {
 
   const handleNotificationClick = async (n: NotificationRow) => {
     const isAdmin = !!user?.isAdmin;
-    const link = getNotificationLink(n, isAdmin);
+    const link = getNotificationLink(n, isAdmin, user?.role ?? null);
     await markAsRead(n.id);
     setOpen(false);
     if (link) navigate(link);
@@ -97,7 +103,7 @@ export function NotificationBell() {
             <ul className="divide-y">
               {notifications.map((n) => {
                 const isAdmin = !!user?.isAdmin;
-                const link = getNotificationLink(n, isAdmin);
+                const link = getNotificationLink(n, isAdmin, user?.role ?? null);
                 return (
                   <li key={n.id}>
                     <button
@@ -112,7 +118,9 @@ export function NotificationBell() {
                         {link && (
                           <span className="shrink-0 text-xs text-muted-foreground">
                             {isAdmin
-                              ? "View analytics"
+                              ? n.type === "org_request"
+                                ? "View requests"
+                                : "View responses"
                               : n.type === "survey_expired"
                                 ? "View survey"
                                 : "Take survey"}

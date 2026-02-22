@@ -46,6 +46,7 @@ export default function AlumniSurveyTaker() {
   const [isSubmitted, setIsSubmitted] = useState(false);
 
   const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
   const submitLockRef = useRef(false);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export default function AlumniSurveyTaker() {
 
       setIsLoadingSurvey(true);
       setIsAllowed(null);
+      setIsExpired(false);
 
       // 1) load basic survey access info
       const { data: surveyRow, error: sErr } = await supabase
@@ -71,6 +73,19 @@ export default function AlumniSurveyTaker() {
       }
 
       const access = surveyRow as SurveyAccessRow;
+
+      // if published alumni survey but expired (deadline passed), show dedicated expired message
+      if (
+        access.is_published &&
+        access.survey_type === "alumni" &&
+        access.deadline &&
+        new Date(access.deadline) < new Date()
+      ) {
+        setIsExpired(true);
+        setIsAllowed(false);
+        setIsLoadingSurvey(false);
+        return;
+      }
 
       // must be published + alumni type + open now
       if (
@@ -226,6 +241,29 @@ export default function AlumniSurveyTaker() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-background md:pl-56">
+        <Header />
+        <div className="container py-10 flex items-center justify-center">
+          <div className="card-elevated p-8 max-w-md w-full text-center">
+            <div className="mb-4 flex justify-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+                <ShieldAlert className="h-8 w-8 text-destructive" />
+              </div>
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">
+              Survey expired
+            </h1>
+            <p className="mt-2 text-muted-foreground">
+              This survey has expired and can&apos;t be taken.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }

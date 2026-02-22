@@ -188,6 +188,12 @@ export default function StudentDashboard() {
         refetchNotifications();
       } catch (e) {
         console.error("Ensure student notifications:", e);
+        const err = e as { message?: string; error_description?: string };
+        const msg =
+          err?.message ??
+          err?.error_description ??
+          (e instanceof Error ? e.message : JSON.stringify(e));
+        toast.error(`Notifications: ${msg}`);
       }
     };
 

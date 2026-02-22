@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Header } from "@/components/layout/Header";
 import { supabase } from "@/integrations/supabase/client";
@@ -61,13 +61,22 @@ type TabId = "analytics" | "responses";
 export default function AdminSurveyResponses() {
   const { surveyId } = useParams<{ surveyId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
 
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<DbQuestion[]>([]);
   const [responses, setResponses] = useState<DbSurveyResponse[]>([]);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<TabId>("analytics");
+  // Tab state: respect ?tab=responses from URL (e.g. from survey notification)
+  const [activeTab, setActiveTab] = useState<TabId>(() =>
+    tabParam === "responses" ? "responses" : "analytics"
+  );
+
+  useEffect(() => {
+    if (tabParam === "responses") setActiveTab("responses");
+    else if (tabParam === "analytics") setActiveTab("analytics");
+  }, [tabParam]);
 
   // Chart controls
   const [chartMode, setChartMode] = useState<"all" | "single">("all");

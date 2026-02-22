@@ -2,9 +2,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/contexts/NotificationsContext";
 import { supabase } from "@/integrations/supabase/client";
+import { notificationsService } from "@/services/notifications";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type SurveyRow = {
   id: string;
@@ -33,13 +45,41 @@ function isSurveyOpenNow(s: SurveyRow) {
   return true;
 }
 
+function getDeadlineText(deadline: string | null | undefined): string | null {
+  if (!deadline) return null;
+  const end = new Date(deadline);
+  const now = new Date();
+  const msLeft = end.getTime() - now.getTime();
+  if (msLeft <= 0) return "EXPIRED";
+  const msPerMin = 60 * 1000;
+  const msPerHour = 60 * msPerMin;
+  const msPerDay = 24 * msPerHour;
+  if (msLeft < msPerHour) {
+    const mins = Math.max(1, Math.ceil(msLeft / msPerMin));
+    return mins === 1 ? "1 minute left" : `${mins} minutes left`;
+  }
+  if (msLeft < msPerDay) {
+    const hours = Math.ceil(msLeft / msPerHour);
+    return hours === 1 ? "1 hour left" : `${hours} hours left`;
+  }
+  const daysLeft = Math.ceil(msLeft / msPerDay);
+  return daysLeft === 1 ? "1 day left" : `${daysLeft} days left`;
+}
+
+function isExpired(deadline: string | null | undefined): boolean {
+  if (!deadline) return false;
+  return new Date(deadline) < new Date();
+}
+
 export default function AlumniDashboard() {
   const { user } = useAuth();
+  const { refetch: refetchNotifications } = useNotifications();
   const [loading, setLoading] = useState(true);
 
   const [surveys, setSurveys] = useState<SurveyRow[]>([]);
   const [myGroupId, setMyGroupId] = useState<string | null>(null);
   const [myGroupLabel, setMyGroupLabel] = useState<string | null>(null);
+  const [showExpiredDialog, setShowExpiredDialog] = useState(false);
 
   const load = async () => {
     if (!user) return;
@@ -132,10 +172,28 @@ export default function AlumniDashboard() {
 
     const rows = (sdata ?? []) as SurveyRow[];
 
-    // filter by time window
-    const visible = rows.filter(isSurveyOpenNow);
+    // show all surveys; deadline/expired state shown on cards (same as Student/Organization)
+    setSurveys(rows);
 
-    setSurveys(visible);
+    // Same notification logic as Student/Organization: new survey, 1hr to deadline, expired
+    if (user?.id && rows.length > 0) {
+      try {
+        await notificationsService.ensureStudentNotifications(
+          user.id,
+          rows.map((s) => ({ id: s.id, title: s.title, deadline: s.deadline })),
+        );
+        refetchNotifications();
+      } catch (e) {
+        console.error("Ensure alumni notifications:", e);
+        const err = e as { message?: string; error_description?: string };
+        const msg =
+          err?.message ??
+          err?.error_description ??
+          (e instanceof Error ? e.message : JSON.stringify(e));
+        toast.error(`Notifications: ${msg}`);
+      }
+    }
+
     setLoading(false);
   };
 
@@ -149,6 +207,9 @@ export default function AlumniDashboard() {
     return surveys.map((s) => ({
       ...s,
       badge: "Alumni (Group)",
+      deadlineText: getDeadlineText(s.deadline),
+      expired: isExpired(s.deadline),
+      openNow: isSurveyOpenNow(s),
     }));
   }, [surveys]);
 
@@ -235,15 +296,56 @@ export default function AlumniDashboard() {
                   </div>
                 )}
 
-                <div className="mt-4">
-                  <Button asChild>
-                    <Link to={`/alumni/survey/${s.id}`}>Answer Survey</Link>
-                  </Button>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  {s.expired ? (
+                    <Button onClick={() => setShowExpiredDialog(true)}>
+                      Answer Survey
+                    </Button>
+                  ) : s.openNow ? (
+                    <Button asChild>
+                      <Link to={`/alumni/survey/${s.id}`}>Answer Survey</Link>
+                    </Button>
+                  ) : (
+                    <Button disabled variant="outline">
+                      Not open yet
+                    </Button>
+                  )}
+                  {s.deadlineText && (
+                    <span
+                      className={[
+                        "text-xs",
+                        s.deadlineText === "EXPIRED"
+                          ? "text-destructive"
+                          : "text-orange-500",
+                      ].join(" ")}
+                    >
+                      {s.deadlineText}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         </div>
+
+        <AlertDialog
+          open={showExpiredDialog}
+          onOpenChange={setShowExpiredDialog}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Survey expired</AlertDialogTitle>
+              <AlertDialogDescription>
+                This survey has expired and can&apos;t be taken.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setShowExpiredDialog(false)}>
+                OK
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </div>
   );

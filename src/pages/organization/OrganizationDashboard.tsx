@@ -299,7 +299,14 @@ export default function OrganizationDashboard() {
                   )}
 
                   {s.deadlineText && (
-                    <span className="text-xs text-red-600">
+                    <span
+                      className={[
+                        "text-xs",
+                        s.deadlineText === "EXPIRED"
+                          ? "text-destructive"
+                          : "text-orange-500",
+                      ].join(" ")}
+                    >
                       {s.deadlineText}
                     </span>
                   )}
