@@ -145,11 +145,10 @@ export default function AdminSurveys() {
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<SurveyKindFilter>("all");
   const [sectionId, setSectionId] = useState("all");
-  const [fromDT, setFromDT] = useState("");
-  const [toDT, setToDT] = useState("");
+  const [filterDate, setFilterDate] = useState("");
 
   const hasActiveFilters =
-    kind !== "all" || sectionId !== "all" || !!fromDT || !!toDT;
+    kind !== "all" || sectionId !== "all" || !!filterDate;
 
   // Ensure admin notifications
   useEffect(() => {
@@ -284,15 +283,15 @@ export default function AdminSurveys() {
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const fromRange = dateOnlyToRange(fromDT);
-    const toRange = dateOnlyToRange(toDT);
+    const dateRange = dateOnlyToRange(filterDate);
     return surveys.filter((x) => {
       const surveyKind = getSurveyKind(x);
       if (kind !== "all" && surveyKind !== kind) return false;
       if (sectionId !== "all" && x.section_id !== sectionId) return false;
-      const created = new Date(x.created_at);
-      if (fromRange && created < fromRange.start) return false;
-      if (toRange && created > toRange.end) return false;
+      if (dateRange) {
+        const created = new Date(x.created_at);
+        if (created < dateRange.start || created > dateRange.end) return false;
+      }
       if (!s) return true;
       return (
         (x.title ?? "").toLowerCase().includes(s) ||
@@ -300,14 +299,13 @@ export default function AdminSurveys() {
         x.id.toLowerCase().includes(s)
       );
     });
-  }, [surveys, search, kind, sectionId, fromDT, toDT]);
+  }, [surveys, search, kind, sectionId, filterDate]);
 
   const clearFilters = () => {
     setSearch("");
     setKind("all");
     setSectionId("all");
-    setFromDT("");
-    setToDT("");
+    setFilterDate("");
   };
 
   const totalPublished = surveys.filter((s) => s.is_published).length;
@@ -460,24 +458,12 @@ export default function AdminSurveys() {
 
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">
-                  Created from
+                  Created on
                 </label>
                 <Input
                   type="date"
-                  value={fromDT}
-                  onChange={(e) => setFromDT(e.target.value)}
-                  className="h-9 w-[180px] text-sm"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Created to
-                </label>
-                <Input
-                  type="date"
-                  value={toDT}
-                  onChange={(e) => setToDT(e.target.value)}
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
                   className="h-9 w-[180px] text-sm"
                 />
               </div>

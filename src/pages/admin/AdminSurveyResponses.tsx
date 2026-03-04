@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Header } from "@/components/layout/Header";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +20,9 @@ import {
   BarChart3,
   MessageSquareText,
   Search,
+  CalendarDays,
+  X,
+  Users,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -37,6 +40,32 @@ type DbSurveyResponse = {
   survey_id: string;
   answers: Record<string, unknown> | null;
   submitted_at: string;
+  // populated after join
+  respondent_name?: string | null;
+  section_label?: string | null;
+};
+
+type SurveyMeta = {
+  title: string;
+  survey_type: string | null;
+  section_id: string | null;
+  teacher_id: string | null;
+  audience: string | null;
+  target_role: string | null;
+};
+
+type SectionRow = {
+  id: string;
+  sem: number;
+  year_level: number;
+  program: string;
+  specialization: string;
+};
+
+type ProfileRow = {
+  id: string;
+  full_name: string | null;
+  section_id: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,6 +83,28 @@ function isOptionQuestion(q: DbQuestion) {
   );
 }
 
+function sectionLabel(s: SectionRow) {
+  return `Y${s.year_level} ${s.specialization} — Sem ${s.sem} (${s.program})`;
+}
+
+function getSurveyKind(meta: SurveyMeta): "section_tr" | "general" | "other" {
+  if (meta.survey_type === "alumni" || meta.audience === "alumni") return "other";
+  if (meta.target_role === "organization" || meta.audience === "target_group")
+    return "other";
+  if (meta.section_id && meta.teacher_id) return "section_tr";
+  return "general";
+}
+
+function dateOnlyToRange(val: string): { start: Date; end: Date } | null {
+  if (!val) return null;
+  const [y, m, d] = val.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return {
+    start: new Date(y, m - 1, d, 0, 0, 0, 0),
+    end: new Date(y, m - 1, d, 23, 59, 59, 999),
+  };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type TabId = "analytics" | "responses";
@@ -67,8 +118,11 @@ export default function AdminSurveyResponses() {
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<DbQuestion[]>([]);
   const [responses, setResponses] = useState<DbSurveyResponse[]>([]);
+  const [surveyMeta, setSurveyMeta] = useState<SurveyMeta | null>(null);
+  const [sections, setSections] = useState<SectionRow[]>([]);
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
 
-  // Tab state: respect ?tab=responses from URL (e.g. from survey notification)
+  // Tab state
   const [activeTab, setActiveTab] = useState<TabId>(() =>
     tabParam === "responses" ? "responses" : "analytics"
   );
@@ -82,6 +136,15 @@ export default function AdminSurveyResponses() {
   const [chartMode, setChartMode] = useState<"all" | "single">("all");
   const [selectedQuestionId, setSelectedQuestionId] = useState<string>("");
   const [chartSearch, setChartSearch] = useState("");
+
+  // ── NEW: Response filters ──────────────────────────────────────────────────
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedSectionId, setSelectedSectionId] = useState("all");
+  const [selectedRespondentId, setSelectedRespondentId] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
+
+  const hasActiveFilters =
+    !!selectedDate || selectedSectionId !== "all" || selectedRespondentId !== "all";
 
   // Question lookup map
   const qMap = useMemo(() => {
@@ -103,7 +166,7 @@ export default function AdminSurveyResponses() {
 
       setLoading(true);
       try {
-        const [qRes, rRes] = await Promise.all([
+        const [qRes, rRes, metaRes, secRes] = await Promise.all([
           supabase
             .from("questions")
             .select("id,title,type,options,order_index")
@@ -111,19 +174,76 @@ export default function AdminSurveyResponses() {
             .order("order_index", { ascending: true }),
           supabase
             .from("survey_responses")
-            .select("id,survey_id,answers,submitted_at")
+            .select("id,survey_id,answers,submitted_at,user_id")
             .eq("survey_id", surveyId)
             .order("submitted_at", { ascending: false }),
+          supabase
+            .from("surveys")
+            .select("title,survey_type,section_id,teacher_id,audience,target_role")
+            .eq("id", surveyId)
+            .single(),
+          supabase
+            .from("sections")
+            .select("id,sem,year_level,program,specialization")
+            .order("year_level", { ascending: true }),
         ]);
 
         if (qRes.error) throw qRes.error;
         if (rRes.error) throw rRes.error;
+        if (metaRes.error) throw metaRes.error;
+        if (secRes.error) throw secRes.error;
         if (!alive) return;
 
         const qs = (qRes.data ?? []) as DbQuestion[];
-        const rs = (rRes.data ?? []) as DbSurveyResponse[];
-
+        const meta = metaRes.data as SurveyMeta;
+        const secs = (secRes.data ?? []) as SectionRow[];
+        setSurveyMeta(meta);
+        setSections(secs);
         setQuestions(qs);
+
+        // Load profiles for user_ids in responses
+        const userIds = [
+          ...new Set(
+            (rRes.data ?? [])
+              .map((r: any) => r.user_id)
+              .filter(Boolean)
+          ),
+        ] as string[];
+
+        let profileRows: ProfileRow[] = [];
+        if (userIds.length > 0) {
+          const { data: pData } = await supabase
+            .from("profiles")
+            .select("id,full_name,section_id")
+            .in("id", userIds);
+          profileRows = (pData ?? []) as ProfileRow[];
+        }
+        if (!alive) return;
+        setProfiles(profileRows);
+
+        const profileMap = new Map<string, ProfileRow>();
+        profileRows.forEach((p) => profileMap.set(p.id, p));
+
+        const secMap = new Map<string, string>();
+        secs.forEach((s) => secMap.set(s.id, sectionLabel(s)));
+
+        const rs: DbSurveyResponse[] = (rRes.data ?? []).map((r: any) => {
+          const profile = r.user_id ? profileMap.get(r.user_id) : null;
+          const secLbl = profile?.section_id
+            ? secMap.get(profile.section_id) ?? null
+            : null;
+          return {
+            id: r.id,
+            survey_id: r.survey_id,
+            answers: r.answers,
+            submitted_at: r.submitted_at,
+            respondent_name: profile?.full_name ?? null,
+            section_label: secLbl,
+            _user_id: r.user_id,
+            _section_id: profile?.section_id ?? null,
+          } as any;
+        });
+
         setResponses(rs);
         setSelectedQuestionId(qs.find(isOptionQuestion)?.id ?? "");
       } catch (e: unknown) {
@@ -144,6 +264,61 @@ export default function AdminSurveyResponses() {
       alive = false;
     };
   }, [surveyId]);
+
+  // ── Derived: survey kind ───────────────────────────────────────────────────
+  const surveyKind = surveyMeta ? getSurveyKind(surveyMeta) : "other";
+  const isFilterable = surveyKind === "section_tr" || surveyKind === "general";
+
+  // ── Sections that appear in responses ─────────────────────────────────────
+  const sectionsInResponses = useMemo(() => {
+    const ids = new Set(
+      (responses as any[]).map((r) => r._section_id).filter(Boolean)
+    );
+    return sections.filter((s) => ids.has(s.id));
+  }, [responses, sections]);
+
+  // ── Respondents for selected section ──────────────────────────────────────
+  const respondentsInSection = useMemo(() => {
+    const sectionFiltered =
+      selectedSectionId === "all"
+        ? (responses as any[])
+        : (responses as any[]).filter(
+            (r) => r._section_id === selectedSectionId
+          );
+    const seen = new Map<string, string>();
+    sectionFiltered.forEach((r) => {
+      if (r._user_id && r.respondent_name) {
+        seen.set(r._user_id, r.respondent_name);
+      }
+    });
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+  }, [responses, selectedSectionId]);
+
+  // ── Filtered responses ─────────────────────────────────────────────────────
+  const filteredResponses = useMemo(() => {
+    const dateRange = dateOnlyToRange(selectedDate);
+
+    return (responses as any[]).filter((r) => {
+      if (dateRange) {
+        const submitted = new Date(r.submitted_at);
+        if (submitted < dateRange.start || submitted > dateRange.end) return false;
+      }
+      if (selectedSectionId !== "all" && r._section_id !== selectedSectionId)
+        return false;
+      if (
+        selectedRespondentId !== "all" &&
+        r._user_id !== selectedRespondentId
+      )
+        return false;
+      return true;
+    }) as DbSurveyResponse[];
+  }, [responses, selectedDate, selectedSectionId, selectedRespondentId]);
+
+  const clearFilters = () => {
+    setSelectedDate("");
+    setSelectedSectionId("all");
+    setSelectedRespondentId("all");
+  };
 
   // Chart question list (filtered)
   const optionQuestions = useMemo(() => {
@@ -167,11 +342,18 @@ export default function AdminSurveyResponses() {
     }
   }, [optionQuestions, selectedQuestionId]);
 
+  // Reset respondent when section changes
+  useEffect(() => {
+    setSelectedRespondentId("all");
+  }, [selectedSectionId]);
+
   // Export JSON
   const exportJSON = () => {
-    const data = responses.map((r) => ({
+    const data = filteredResponses.map((r) => ({
       id: r.id,
       submitted_at: r.submitted_at,
+      respondent_name: r.respondent_name ?? null,
+      section: r.section_label ?? null,
       answers: r.answers ?? {},
     }));
     const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -221,7 +403,7 @@ export default function AdminSurveyResponses() {
             variant="outline"
             size="sm"
             onClick={exportJSON}
-            disabled={responses.length === 0}
+            disabled={filteredResponses.length === 0}
           >
             <Download className="mr-1 h-4 w-4" />
             Export JSON
@@ -236,9 +418,15 @@ export default function AdminSurveyResponses() {
             <h1 className="text-3xl font-semibold text-foreground tracking-tight">
               Survey Insights
             </h1>
+            {surveyMeta?.title && (
+              <p className="mt-0.5 text-sm font-medium text-primary/80">
+                {surveyMeta.title}
+              </p>
+            )}
             <p className="mt-1 text-sm text-muted-foreground">
-              {responses.length} response{responses.length !== 1 ? "s" : ""}{" "}
-              collected
+              {filteredResponses.length === responses.length
+                ? `${responses.length} response${responses.length !== 1 ? "s" : ""} collected`
+                : `Showing ${filteredResponses.length} of ${responses.length} responses`}
             </p>
           </div>
 
@@ -252,6 +440,145 @@ export default function AdminSurveyResponses() {
             </span>
           </div>
         </div>
+
+        {/* ════════════════════════════════════════════════
+            RESPONSE FILTERS  (date + section + name)
+            Only shown for section_tr and general surveys
+        ════════════════════════════════════════════════ */}
+        {isFilterable && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowFilters((v) => !v)}
+                className={[
+                  "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                  showFilters || hasActiveFilters
+                    ? "border-primary/50 bg-primary/5 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                ].join(" ")}
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                Filter Responses
+                {hasActiveFilters && (
+                  <span className="ml-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold w-4 h-4 flex items-center justify-center">
+                    !
+                  </span>
+                )}
+              </button>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {showFilters && (
+              <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/20 px-4 py-3">
+                {/* Single date picker */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Submitted on
+                  </label>
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="h-9 w-[180px] text-sm"
+                  />
+                </div>
+
+                {/* Section select — for general surveys show all sections that responded */}
+                {sectionsInResponses.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Section
+                    </label>
+                    <Select
+                      value={selectedSectionId}
+                      onValueChange={setSelectedSectionId}
+                    >
+                      <SelectTrigger className="h-9 w-[240px] text-sm">
+                        <SelectValue placeholder="All sections" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All sections</SelectItem>
+                        {sectionsInResponses.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {sectionLabel(s)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Respondent name select */}
+                {respondentsInSection.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      Respondent
+                    </label>
+                    <Select
+                      value={selectedRespondentId}
+                      onValueChange={setSelectedRespondentId}
+                    >
+                      <SelectTrigger className="h-9 w-[220px] text-sm">
+                        <SelectValue placeholder="All respondents" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All respondents</SelectItem>
+                        {respondentsInSection.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Active filter summary chips */}
+            {hasActiveFilters && (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedDate && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2.5 py-0.5 font-medium">
+                    Date: {selectedDate}
+                    <button onClick={() => setSelectedDate("")}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+                {selectedSectionId !== "all" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 text-blue-700 text-xs px-2.5 py-0.5 font-medium">
+                    {sectionLabel(
+                      sections.find((s) => s.id === selectedSectionId)!
+                    )}
+                    <button onClick={() => setSelectedSectionId("all")}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+                {selectedRespondentId !== "all" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 text-xs px-2.5 py-0.5 font-medium">
+                    {respondentsInSection.find(
+                      (p) => p.id === selectedRespondentId
+                    )?.name ?? selectedRespondentId}
+                    <button onClick={() => setSelectedRespondentId("all")}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Tab switcher ── */}
         <div className="inline-flex rounded-xl border border-border bg-card p-1 gap-1">
@@ -278,7 +605,7 @@ export default function AdminSurveyResponses() {
           >
             <MessageSquareText className="h-4 w-4" />
             Responses
-            {responses.length > 0 && (
+            {filteredResponses.length > 0 && (
               <span
                 className={[
                   "ml-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none font-semibold",
@@ -287,7 +614,7 @@ export default function AdminSurveyResponses() {
                     : "bg-muted text-muted-foreground",
                 ].join(" ")}
               >
-                {responses.length}
+                {filteredResponses.length}
               </span>
             )}
           </button>
@@ -405,12 +732,13 @@ export default function AdminSurveyResponses() {
                   </div>
                 </div>
 
-                {/* Chart output */}
+                {/* Chart output — uses filteredResponses */}
                 <div className="card-elevated rounded-xl p-5">
-                  {responses.length === 0 ? (
+                  {filteredResponses.length === 0 ? (
                     <div className="py-10 text-center text-muted-foreground text-sm">
-                      No responses yet — charts will appear here once students
-                      submit.
+                      {hasActiveFilters
+                        ? "No responses match the current filters."
+                        : "No responses yet — charts will appear here once students submit."}
                     </div>
                   ) : (
                     <GeneralSurveyChart
@@ -431,7 +759,7 @@ export default function AdminSurveyResponses() {
                               options: q.options,
                             }))
                       }
-                      responses={responses.map((r) => ({
+                      responses={filteredResponses.map((r) => ({
                         id: r.id,
                         answers: r.answers,
                       }))}
@@ -449,20 +777,22 @@ export default function AdminSurveyResponses() {
         ════════════════════════════════════════════════ */}
         {activeTab === "responses" && (
           <div className="space-y-4">
-            {responses.length === 0 ? (
+            {filteredResponses.length === 0 ? (
               <div className="card-elevated rounded-xl p-10 text-center space-y-2">
                 <MessageSquareText className="mx-auto h-10 w-10 text-muted-foreground/40" />
                 <div className="text-base font-medium text-foreground">
-                  No responses yet
+                  {hasActiveFilters ? "No responses match filters" : "No responses yet"}
                 </div>
                 <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                  Once students submit, their responses will appear here. If you
-                  expected results, check RLS on{" "}
-                  <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                    survey_responses
-                  </code>
-                  .
+                  {hasActiveFilters
+                    ? "Try adjusting or clearing the filters above."
+                    : "Once students submit, their responses will appear here."}
                 </p>
+                {hasActiveFilters && (
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="space-y-5">
@@ -474,16 +804,25 @@ export default function AdminSurveyResponses() {
                     q.type === "long_answer" ||
                     q.type === "paragraph";
 
-                  // Collect all answers for this question across all responses
-                  const answers: string[] = responses
+                  // Collect answers from filteredResponses
+                  const answersWithMeta: {
+                    text: string;
+                    name: string | null;
+                    section: string | null;
+                    date: string;
+                  }[] = filteredResponses
                     .map((r) => {
                       const val = (r.answers ?? {})[q.id];
                       if (val === undefined || val === null || val === "")
                         return null;
-                      if (Array.isArray(val)) return val.join(", ");
-                      return String(val);
+                      return {
+                        text: Array.isArray(val) ? val.join(", ") : String(val),
+                        name: r.respondent_name ?? null,
+                        section: r.section_label ?? null,
+                        date: r.submitted_at,
+                      };
                     })
-                    .filter(Boolean) as string[];
+                    .filter(Boolean) as any[];
 
                   return (
                     <div
@@ -504,7 +843,7 @@ export default function AdminSurveyResponses() {
                               {q.type}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {answers.length} / {responses.length} answered
+                              {answersWithMeta.length} / {filteredResponses.length} answered
                             </span>
                           </div>
                         </div>
@@ -513,26 +852,53 @@ export default function AdminSurveyResponses() {
                       {/* Answers body — only for text-type questions */}
                       {isText ? (
                         <div className="divide-y divide-border">
-                          {answers.length === 0 ? (
+                          {answersWithMeta.length === 0 ? (
                             <p className="px-5 py-4 text-sm text-muted-foreground italic">
                               No answers submitted yet.
                             </p>
                           ) : (
-                            answers.map((ans, i) => (
+                            answersWithMeta.map((ans, i) => (
                               <div
                                 key={i}
                                 className="px-5 py-3 flex items-start gap-3"
                               >
                                 <span className="flex-shrink-0 mt-1 w-1.5 h-1.5 rounded-full bg-primary/50" />
-                                <p className="text-sm text-foreground break-words leading-relaxed">
-                                  {ans}
-                                </p>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-foreground break-words leading-relaxed">
+                                    {ans.text}
+                                  </p>
+                                  {/* Respondent meta */}
+                                  {(ans.name || ans.section) && (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {ans.name && (
+                                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                                          {ans.name}
+                                        </span>
+                                      )}
+                                      {ans.section && (
+                                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                                          {ans.section}
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {new Date(ans.date).toLocaleDateString(
+                                          "en-US",
+                                          {
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric",
+                                          }
+                                        )}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             ))
                           )}
                         </div>
                       ) : (
-                        /* Non-text questions: show summary note, chart is in Analytics tab */
+                        /* Non-text questions: show summary note */
                         <div className="px-5 py-3">
                           <p className="text-sm text-muted-foreground">
                             This question type is visualised in the{" "}
