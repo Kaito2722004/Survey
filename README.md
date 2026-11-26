@@ -1,73 +1,116 @@
-# Welcome to your Lovable project
+# Survey Form
 
-## Project info
+A web application for creating surveys, managing questions, and collecting responses from students. Administrators can manage semesters, teachers, students, surveys, and response data from a role-based dashboard.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Features
 
-## How can I edit this code?
+- Email/password authentication with Supabase
+- Separate administrator and student experiences
+- Create, edit, publish, and delete surveys
+- Add and reorder survey questions
+- Collect and review survey responses
+- Manage semesters, students, and teachers
+- Responsive interface built with React and Tailwind CSS
 
-There are several ways of editing your application.
+## Tech stack
 
-**Use Lovable**
+- React 18
+- TypeScript
+- Vite
+- React Router
+- Tailwind CSS
+- shadcn/ui and Radix UI
+- Supabase Authentication and Database
+- Vitest
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Getting started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
 
-**Use your preferred IDE**
+- Node.js 18 or newer
+- npm
+- A Supabase project
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Installation
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+1. Clone the repository:
 
-Follow these steps:
+   ```bash
+   git clone https://github.com/Kaito2722004/Survey.git
+   cd survey-form
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+2. Install dependencies:
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+   ```bash
+   npm install
+   ```
 
-# Step 3: Install the necessary dependencies.
-npm i
+3. Create a `.env` file in the project root:
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+   ```env
+   VITE_SUPABASE_URL=your_supabase_project_url
+   VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY=your_supabase_publishable_key
+   ```
+
+   Do not commit `.env` or any private credentials to GitHub.
+
+4. Start the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+   Open the local URL shown in the terminal, usually `http://localhost:5173`.
+
+## Available scripts
+
+```bash
+npm run dev       # Start the development server
+npm run build     # Create a production build
+npm run preview   # Preview the production build locally
+npm run lint      # Run ESLint
+npm test          # Run the test suite
 ```
 
-**Edit a file directly in GitHub**
+## Supabase setup
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+The database migration files are in [`supabase/migrations`](./supabase/migrations). Apply the migration to your Supabase project, then add the project URL and publishable key to `.env`.
 
-**Use GitHub Codespaces**
+The application uses Supabase for authentication and survey data. Configure the required authentication settings and database policies in the Supabase dashboard before deploying.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Project structure
 
-## What technologies are used for this project?
+```text
+src/
+├── components/       Reusable UI and survey components
+├── contexts/         Authentication and survey state
+├── integrations/     Supabase client and generated types
+├── pages/             Admin, student, login, and signup pages
+├── services/          Database service functions
+└── types/             Shared TypeScript types
+supabase/
+└── migrations/        Database schema migrations
+public/                 Static assets
+```
 
-This project is built with:
+## Deployment
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Build the application with:
 
-## How can I deploy this project?
+```bash
+npm run build
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+The generated files are placed in `dist/` and can be deployed to Vercel, Netlify, GitHub Pages, or another static hosting provider. Add the same Supabase environment variables to the hosting provider's environment settings.
 
-## Can I connect a custom domain to my Lovable project?
+## Contributing
 
-Yes, you can!
+1. Create a feature branch.
+2. Make your changes.
+3. Run `npm run lint`, `npm test`, and `npm run build`.
+4. Open a pull request with a clear description of the changes.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## License
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+This project is released under the [MIT License](./LICENSE).
